@@ -1,5 +1,6 @@
 pub mod api;
 pub mod base64;
+pub mod db;
 pub mod cipherstring;
 pub mod error;
 pub mod identity;
