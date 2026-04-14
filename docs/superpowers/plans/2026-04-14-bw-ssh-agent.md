@@ -1,6 +1,6 @@
 # Bitwarden SSH Agent Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build a cross-platform SSH agent that serves SSH keys from a Bitwarden vault, using egui for master password prompts and a 15-minute auth cache.
 
@@ -89,7 +89,7 @@ This chunk sets up the workspace and copies the platform-independent crypto modu
 - Create: `crates/bw-agent/src/main.rs`
 - Delete: `crates/example/` (no longer needed)
 
-- [ ] **Step 1: Update workspace root Cargo.toml**
+- [x] **Step 1: Update workspace root Cargo.toml**
 
 ```toml
 [workspace]
@@ -113,7 +113,7 @@ missing_panics_doc = "allow"
 module_name_repetitions = "allow"
 ```
 
-- [ ] **Step 2: Create bw-core Cargo.toml**
+- [x] **Step 2: Create bw-core Cargo.toml**
 
 ```toml
 [package]
@@ -156,7 +156,7 @@ log = "0.4.29"
 workspace = true
 ```
 
-- [ ] **Step 3: Create bw-core/src/lib.rs (stub — modules added incrementally)**
+- [x] **Step 3: Create bw-core/src/lib.rs (stub — modules added incrementally)**
 
 Start with only `prelude` and `error` as placeholders. Each subsequent Task will add its `pub mod` declaration when the file is created.
 
@@ -169,7 +169,7 @@ pub mod prelude;
 **Task 3** will add: `pub mod identity; pub mod cipherstring;`
 **Task 4+5** will add: `pub mod api; pub mod db;` (db depends on api types, so both are added together after Task 5)
 
-- [ ] **Step 4: Create bw-core/src/prelude.rs**
+- [x] **Step 4: Create bw-core/src/prelude.rs**
 
 Copy verbatim from `.reference/rbw/src/prelude.rs`:
 
@@ -177,7 +177,7 @@ Copy verbatim from `.reference/rbw/src/prelude.rs`:
 pub use crate::error::{Error, Result};
 ```
 
-- [ ] **Step 5: Create stub bw-ui/Cargo.toml and lib.rs**
+- [x] **Step 5: Create stub bw-ui/Cargo.toml and lib.rs**
 
 `crates/bw-ui/Cargo.toml`:
 ```toml
@@ -203,7 +203,7 @@ pub fn prompt_master_password() -> Option<String> {
 }
 ```
 
-- [ ] **Step 6: Create stub bw-agent/Cargo.toml and main.rs**
+- [x] **Step 6: Create stub bw-agent/Cargo.toml and main.rs**
 
 `crates/bw-agent/Cargo.toml`:
 ```toml
@@ -240,13 +240,13 @@ fn main() {
 }
 ```
 
-- [ ] **Step 7: Delete crates/example directory**
+- [x] **Step 7: Delete crates/example directory**
 
 ```bash
 rm -rf crates/example
 ```
 
-- [ ] **Step 8: Verify workspace compiles**
+- [x] **Step 8: Verify workspace compiles**
 
 ```bash
 cargo check --workspace
@@ -254,7 +254,7 @@ cargo check --workspace
 
 Expected: Success (stubs only)
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add -A && git commit -m "scaffold: workspace with bw-core, bw-ui, bw-agent crates"
@@ -272,7 +272,7 @@ These four files are small utilities that need minimal or no changes.
 - Create: `crates/bw-core/src/locked.rs`
 - Create: `crates/bw-core/src/error.rs`
 
-- [ ] **Step 0: Wire new modules into lib.rs**
+- [x] **Step 0: Wire new modules into lib.rs**
 
 Add to `crates/bw-core/src/lib.rs`:
 
@@ -282,19 +282,19 @@ pub mod json;
 pub mod locked;
 ```
 
-- [ ] **Step 1: Copy base64.rs verbatim**
+- [x] **Step 1: Copy base64.rs verbatim**
 
 Copy `.reference/rbw/src/base64.rs` → `crates/bw-core/src/base64.rs`. No changes needed.
 
-- [ ] **Step 2: Copy json.rs, remove blocking impl**
+- [x] **Step 2: Copy json.rs, remove blocking impl**
 
 Copy `.reference/rbw/src/json.rs` → `crates/bw-core/src/json.rs`. **Remove** the `impl DeserializeJsonWithPath for reqwest::blocking::Response` block (lines 15-23 in rbw) — we don't enable reqwest's `blocking` feature. Keep only the `String` impl and the async `reqwest::Response` impl.
 
-- [ ] **Step 3: Copy locked.rs verbatim**
+- [x] **Step 3: Copy locked.rs verbatim**
 
 Copy `.reference/rbw/src/locked.rs` → `crates/bw-core/src/locked.rs`. No changes needed.
 
-- [ ] **Step 4: Create error.rs — trimmed version**
+- [x] **Step 4: Create error.rs — trimmed version**
 
 Copy `.reference/rbw/src/error.rs` → `crates/bw-core/src/error.rs`. Remove these variants that we don't need:
 - `ConfigMissingEmail` (we handle config differently)
@@ -437,7 +437,7 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 ```
 
-- [ ] **Step 5: Verify bw-core compiles**
+- [x] **Step 5: Verify bw-core compiles**
 
 ```bash
 cargo check -p bw-core
@@ -445,7 +445,7 @@ cargo check -p bw-core
 
 Expected: Success. If there are import errors, fix `crate::` paths.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A && git commit -m "feat(bw-core): add base64, json, locked, error modules from rbw"
@@ -461,7 +461,7 @@ These are the crypto core — KDF derivation and AES/RSA encrypt/decrypt.
 - Create: `crates/bw-core/src/identity.rs`
 - Create: `crates/bw-core/src/cipherstring.rs`
 
-- [ ] **Step 0: Wire new modules into lib.rs**
+- [x] **Step 0: Wire new modules into lib.rs**
 
 Add to `crates/bw-core/src/lib.rs`:
 
@@ -470,7 +470,7 @@ pub mod identity;
 pub mod cipherstring;
 ```
 
-- [ ] **Step 1: Copy identity.rs and adapt to new crypto APIs**
+- [x] **Step 1: Copy identity.rs and adapt to new crypto APIs**
 
 Copy `.reference/rbw/src/identity.rs` → `crates/bw-core/src/identity.rs`. Then fix for new crate versions:
 - `sha2 0.11`: Check if `Digest` trait import path changed (`sha2::Digest` → may now be `digest::Digest`).
@@ -478,7 +478,7 @@ Copy `.reference/rbw/src/identity.rs` → `crates/bw-core/src/identity.rs`. Then
 - `hkdf 0.13`: Verify `Hkdf::from_prk()` and `.expand()` signatures.
 - `rand 0.10`: `rand::rng()` may have changed — check if it's now `rand::rng()` or `rand::thread_rng()`.
 
-- [ ] **Step 2: Copy cipherstring.rs and adapt to new crypto APIs**
+- [x] **Step 2: Copy cipherstring.rs and adapt to new crypto APIs**
 
 Copy `.reference/rbw/src/cipherstring.rs` → `crates/bw-core/src/cipherstring.rs`. Then fix for new crate versions:
 - `aes 0.9` / `cbc 0.2`: The `BlockDecryptMut`, `BlockEncryptMut`, `KeyIvInit` traits from `aes::cipher` may have moved. Check `cipher` crate re-exports.
@@ -488,7 +488,7 @@ Copy `.reference/rbw/src/cipherstring.rs` → `crates/bw-core/src/cipherstring.r
 - `rand 0.10`: `rand::RngCore` → `fill_bytes` API — verify.
 - `pkcs8 0.10` / `rsa 0.9.10`: `DecodePrivateKey`, `RsaPrivateKey::from_pkcs8_der()`, `Oaep::new::<sha1::Sha1>()` — verify signatures.
 
-- [ ] **Step 3: Verify crypto chain compiles**
+- [x] **Step 3: Verify crypto chain compiles**
 
 ```bash
 cargo check -p bw-core
@@ -496,7 +496,7 @@ cargo check -p bw-core
 
 Expected: Success.
 
-- [ ] **Step 4: Run cipherstring tests**
+- [x] **Step 4: Run cipherstring tests**
 
 ```bash
 cargo test -p bw-core -- cipherstring
@@ -504,7 +504,7 @@ cargo test -p bw-core -- cipherstring
 
 Expected: `test_pkcs7_unpad` passes (the only test in rbw's cipherstring.rs).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A && git commit -m "feat(bw-core): add identity and cipherstring crypto modules from rbw"
@@ -522,7 +522,7 @@ db.rs depends on types from api.rs (`CipherRepromptType`, `FieldType`, `LinkedId
 - Create: `crates/bw-core/src/api.rs` (types only — enums, serde structs)
 - Create: `crates/bw-core/src/db.rs`
 
-- [ ] **Step 0: Wire both modules into lib.rs**
+- [x] **Step 0: Wire both modules into lib.rs**
 
 Add to `crates/bw-core/src/lib.rs`:
 
@@ -531,7 +531,7 @@ pub mod api;
 pub mod db;
 ```
 
-- [ ] **Step 1: Create api.rs with type definitions only**
+- [x] **Step 1: Create api.rs with type definitions only**
 
 Copy from `.reference/rbw/src/api.rs` ONLY the public type definitions (no `Client`, no functions):
 - `UriMatchType` enum + Display impl
@@ -543,7 +543,7 @@ Copy from `.reference/rbw/src/api.rs` ONLY the public type definitions (no `Clie
 
 This file will be extended in Task 5 with the Client struct and all private request/response types.
 
-- [ ] **Step 2: Create db.rs with types only**
+- [x] **Step 2: Create db.rs with types only**
 
 Copy the following from `.reference/rbw/src/db.rs`:
 - `Entry` struct
@@ -559,7 +559,7 @@ Do NOT copy:
 
 The resulting file should define the data types that `api.rs` sync response maps into. Keep all `crate::api::*` references intact (they'll resolve to our trimmed api.rs).
 
-- [ ] **Step 2: Add a round-trip serde test for EntryData::SshKey**
+- [x] **Step 2: Add a round-trip serde test for EntryData::SshKey**
 
 Create `crates/bw-core/src/db.rs` inline test:
 
@@ -598,13 +598,13 @@ mod tests {
 Run: `cargo test -p bw-core -- db::tests`
 Expected: PASS
 
-- [ ] **Step 3: Verify compiles**
+- [x] **Step 3: Verify compiles**
 
 ```bash
 cargo check -p bw-core
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A && git commit -m "feat(bw-core): add vault entry types from rbw (no file I/O)"
@@ -622,7 +622,7 @@ We remove: register, SSO, add/edit/remove ciphers, folders, send_email_login, bl
 **Files:**
 - Modify: `crates/bw-core/src/api.rs` (extend with Client + private types)
 
-- [ ] **Step 1: Add private request/response types to api.rs**
+- [x] **Step 1: Add private request/response types to api.rs**
 
 Append these types to the existing `api.rs` (which already has the public enums from Task 4):
 - `PreloginReq` / `PreloginRes`
@@ -638,7 +638,7 @@ Append these types to the existing `api.rs` (which already has the public enums 
 - `SyncResPasswordHistory`
 - `classify_login_error` function
 
-- [ ] **Step 2: Create the Client struct with proxy support**
+- [x] **Step 2: Create the Client struct with proxy support**
 
 Replace rbw's `Client` with this version:
 
@@ -696,7 +696,7 @@ impl Client {
 }
 ```
 
-- [ ] **Step 3: Implement prelogin, login, sync, exchange_refresh_token (async only)**
+- [x] **Step 3: Implement prelogin, login, sync, exchange_refresh_token (async only)**
 
 Port the async versions from rbw's `api.rs`. Key changes:
 - Use `self.reqwest_client()` (our new proxy-aware version) instead of rbw's.
@@ -725,7 +725,7 @@ The `exchange_refresh_token()` becomes async-only (remove blocking version):
 pub async fn exchange_refresh_token(&self, refresh_token: &str) -> crate::error::Result<String>
 ```
 
-- [ ] **Step 4: Add a `device_id()` helper function**
+- [x] **Step 4: Add a `device_id()` helper function**
 
 Instead of rbw's file-based device_id, generate in-memory and optionally persist:
 
@@ -737,7 +737,7 @@ pub fn generate_device_id() -> String {
 }
 ```
 
-- [ ] **Step 5: Add high-level action functions**
+- [x] **Step 5: Add high-level action functions**
 
 Create convenience functions at the bottom of `api.rs` (or in a separate `actions` section) that combine the low-level API calls, mirroring `rbw/src/actions.rs`:
 
@@ -857,7 +857,7 @@ pub fn unlock_vault(
 }
 ```
 
-- [ ] **Step 6: Add unit tests for Client construction and URL helpers**
+- [x] **Step 6: Add unit tests for Client construction and URL helpers**
 
 Add inline tests at the bottom of `api.rs`:
 
@@ -914,13 +914,13 @@ mod tests {
 Run: `cargo test -p bw-core -- api::tests`
 Expected: All 4 tests PASS.
 
-- [ ] **Step 7: Verify bw-core compiles**
+- [x] **Step 7: Verify bw-core compiles**
 
 ```bash
 cargo check -p bw-core
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A && git commit -m "feat(bw-core): add Bitwarden API client with proxy support and vault unlock logic"
@@ -935,7 +935,7 @@ git add -A && git commit -m "feat(bw-core): add Bitwarden API client with proxy 
 **Files:**
 - Modify: `crates/bw-ui/src/lib.rs`
 
-- [ ] **Step 1: Implement the egui password dialog**
+- [x] **Step 1: Implement the egui password dialog**
 
 ```rust
 use eframe::egui;
@@ -1032,13 +1032,13 @@ impl PasswordApp {
 }
 ```
 
-- [ ] **Step 2: Verify bw-ui compiles**
+- [x] **Step 2: Verify bw-ui compiles**
 
 ```bash
 cargo check -p bw-ui
 ```
 
-- [ ] **Step 3: Create and run a test example**
+- [x] **Step 3: Create and run a test example**
 
 Create `crates/bw-ui/examples/test_dialog.rs`:
 
@@ -1059,7 +1059,7 @@ cargo run -p bw-ui --example test_dialog
 
 Expected: A 400x180 window titled "Bitwarden SSH Agent - Unlock" appears. Type any text, press Enter or click "Unlock" → console prints "Got password (N chars)". Click "Cancel" → console prints "Cancelled". Submitting empty → red error text "Password cannot be empty".
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A && git commit -m "feat(bw-ui): egui master password prompt dialog"
@@ -1075,7 +1075,7 @@ git add -A && git commit -m "feat(bw-ui): egui master password prompt dialog"
 - Create: `crates/bw-agent/src/state.rs`
 - Modify: `crates/bw-agent/src/main.rs` (add module declarations)
 
-- [ ] **Step 0: Wire all agent modules into main.rs upfront**
+- [x] **Step 0: Wire all agent modules into main.rs upfront**
 
 Replace `crates/bw-agent/src/main.rs` with module stubs so Tasks 7-9 can compile and test independently:
 
@@ -1101,7 +1101,7 @@ Also create empty stubs for `auth.rs` and `ssh_agent.rs`:
 // Placeholder — implemented in Task 9
 ```
 
-- [ ] **Step 1: Implement the cached state**
+- [x] **Step 1: Implement the cached state**
 
 ```rust
 use std::collections::HashMap;
@@ -1197,7 +1197,7 @@ impl State {
 }
 ```
 
-- [ ] **Step 2: Add unit tests for State TTL logic**
+- [x] **Step 2: Add unit tests for State TTL logic**
 
 Add tests at the bottom of `state.rs`:
 
@@ -1258,13 +1258,13 @@ mod tests {
 Run: `cargo test -p bw-agent -- state::tests`
 Expected: All 5 tests PASS.
 
-- [ ] **Step 3: Verify compiles**
+- [x] **Step 3: Verify compiles**
 
 ```bash
 cargo check -p bw-agent
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A && git commit -m "feat(bw-agent): add auth cache state with 15-min TTL"
@@ -1277,7 +1277,7 @@ git add -A && git commit -m "feat(bw-agent): add auth cache state with 15-min TT
 **Files:**
 - Create: `crates/bw-agent/src/auth.rs`
 
-- [ ] **Step 1: Implement the auth orchestrator**
+- [x] **Step 1: Implement the auth orchestrator**
 
 This module coordinates: check cache → prompt password (egui) → login → sync → unlock → cache.
 
@@ -1413,7 +1413,7 @@ pub fn decrypt_cipher(
 }
 ```
 
-- [ ] **Step 2: Add unit test for decrypt_cipher with known test vectors**
+- [x] **Step 2: Add unit test for decrypt_cipher with known test vectors**
 
 Add tests at the bottom of `auth.rs`:
 
@@ -1435,13 +1435,13 @@ mod tests {
 Run: `cargo test -p bw-agent -- auth::tests`
 Expected: PASS — confirms that `decrypt_cipher` correctly errors when the state is locked.
 
-- [ ] **Step 3: Verify compiles**
+- [x] **Step 3: Verify compiles**
 
 ```bash
 cargo check -p bw-agent
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A && git commit -m "feat(bw-agent): auth flow with egui password prompt and vault unlock"
@@ -1454,7 +1454,7 @@ git add -A && git commit -m "feat(bw-agent): auth flow with egui password prompt
 **Files:**
 - Create: `crates/bw-agent/src/ssh_agent.rs`
 
-- [ ] **Step 1: Port ssh_agent.rs from rbw**
+- [x] **Step 1: Port ssh_agent.rs from rbw**
 
 Adapt `.reference/rbw/src/bin/rbw-agent/ssh_agent.rs`. Key changes:
 - Replace `crate::state::State` references with our `crate::state::State`
@@ -1637,7 +1637,7 @@ impl ssh_agent_lib::agent::Session for SshAgentHandler {
 }
 ```
 
-- [ ] **Step 2: Add unit test for SshAgentHandler construction**
+- [x] **Step 2: Add unit test for SshAgentHandler construction**
 
 Add tests at the bottom of `ssh_agent.rs`:
 
@@ -1672,13 +1672,13 @@ mod tests {
 Run: `cargo test -p bw-agent -- ssh_agent::tests`
 Expected: PASS — confirms that an unlocked agent with zero vault entries returns an empty identity list.
 
-- [ ] **Step 3: Verify full project compiles**
+- [x] **Step 3: Verify full project compiles**
 
 ```bash
 cargo check -p bw-agent
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A && git commit -m "feat(bw-agent): SSH agent protocol handler with Ed25519 and RSA signing"
@@ -1691,7 +1691,7 @@ git add -A && git commit -m "feat(bw-agent): SSH agent protocol handler with Ed2
 **Files:**
 - Modify: `crates/bw-agent/src/main.rs`
 
-- [ ] **Step 1: Implement main with CLI args and agent startup**
+- [x] **Step 1: Implement main with CLI args and agent startup**
 
 ```rust
 mod auth;
@@ -1771,13 +1771,13 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-- [ ] **Step 2: Verify the full project compiles**
+- [x] **Step 2: Verify the full project compiles**
 
 ```bash
 cargo check --workspace
 ```
 
-- [ ] **Step 3: Verify the binary builds**
+- [x] **Step 3: Verify the binary builds**
 
 ```bash
 cargo build -p bw-agent
@@ -1785,7 +1785,7 @@ cargo build -p bw-agent
 
 Expected: Success. Binary at `target/debug/bw-agent.exe` (Windows).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A && git commit -m "feat(bw-agent): main entry point with env-based config and platform listener"
@@ -1799,7 +1799,7 @@ git add -A && git commit -m "feat(bw-agent): main entry point with env-based con
 
 This task is reserved for fixing any compilation errors that arise during the previous tasks. Common issues:
 
-- [ ] **Step 1: Fix version mismatches**
+- [x] **Step 1: Fix version mismatches**
 
 Ensure `rsa`, `sha1`, `sha2`, `signature` crate versions are compatible between `bw-core` and `bw-agent`. The `ssh-agent-lib` 0.5.x re-exports `ssh-key` 0.6.x which uses specific versions of crypto crates. Check with:
 
@@ -1809,19 +1809,19 @@ cargo tree -p bw-agent -d
 
 Resolve any duplicate versions by aligning `[workspace.dependencies]`.
 
-- [ ] **Step 2: Fix `rand` version compatibility**
+- [x] **Step 2: Fix `rand` version compatibility**
 
 We use `rand 0.10.1` everywhere. Verify that `ssh-agent-lib 0.5.2` and `rsa 0.9.10` are compatible with `rand 0.10`. If `ssh-agent-lib` or `rsa` re-export or depend on an older `rand`, you may need to add a compat alias like `rand_08 = { package = "rand", version = "0.8" }` for the RSA signing code only. Check with `cargo tree -p bw-agent -i rand`.
 
 Also verify: `rand::rngs::OsRng` in rand 0.10 — it may have moved. In rand 0.10, `OsRng` is at `rand::rngs::OsRng` or just `rand::rngs::OsRng`. Check the docs.
 
-- [ ] **Step 3: Full build**
+- [x] **Step 3: Full build**
 
 ```bash
 cargo build --workspace
 ```
 
-- [ ] **Step 4: Run full test suite**
+- [x] **Step 4: Run full test suite**
 
 ```bash
 cargo test --workspace
@@ -1837,7 +1837,7 @@ Expected: ALL tests pass — this includes:
 
 If any test fails, fix the issue before committing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A && git commit -m "fix: resolve dependency version conflicts across workspace"
@@ -1847,7 +1847,7 @@ git add -A && git commit -m "fix: resolve dependency version conflicts across wo
 
 ### Task 12: End-to-End Smoke Test
 
-- [ ] **Step 1: Set environment and run**
+- [x] **Step 1: Set environment and run**
 
 ```powershell
 $env:BW_EMAIL = "your-email@example.com"
@@ -1858,7 +1858,7 @@ cargo run -p bw-agent
 
 Expected: Agent starts, prints "Listening on named pipe: \\.\pipe\openssh-ssh-agent"
 
-- [ ] **Step 2: Test with ssh-add**
+- [x] **Step 2: Test with ssh-add**
 
 In another terminal (no env vars needed — Windows `ssh-add.exe` automatically connects to `\\.\pipe\openssh-ssh-agent`):
 
@@ -1874,7 +1874,7 @@ ssh-add -l
 
 Expected: egui password dialog pops up. After entering the correct password, SSH keys from Bitwarden vault are listed.
 
-- [ ] **Step 3: Test signing with ssh -T**
+- [x] **Step 3: Test signing with ssh -T**
 
 No extra config needed — `ssh.exe` on Windows automatically uses `\\.\pipe\openssh-ssh-agent`:
 
@@ -1884,11 +1884,11 @@ ssh -T git@github.com
 
 Expected: If the Bitwarden vault has an SSH key registered with GitHub, you should see `Hi <username>! You've authenticated...`. If not registered, you'll see `Permission denied (publickey).` — but the important thing is **no egui prompt appears** (within the 15-min cache window), confirming the cache works. Check agent debug logs to verify the signing request was processed.
 
-- [ ] **Step 4: Test cache expiry**
+- [x] **Step 4: Test cache expiry**
 
 Wait 15 minutes (or temporarily set `BW_CACHE_TTL=10` for 10 seconds). Then retry `ssh-add -l`. Expected: egui dialog pops up again.
 
-- [ ] **Step 5: Final commit**
+- [x] **Step 5: Final commit**
 
 ```bash
 git add -A && git commit -m "chore: integration smoke test passed"
