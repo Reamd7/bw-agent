@@ -12,3 +12,9 @@ pub enum TwoFactorProviderType {
     OrganizationDuo = 6,
     WebAuthn = 7,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KdfType {
+    Pbkdf2 = 0,
+    Argon2id = 1,
+}
