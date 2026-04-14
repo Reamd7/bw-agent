@@ -1,4 +1,5 @@
 mod auth;
+mod config;
 mod ssh_agent;
 mod state;
 
@@ -17,28 +18,29 @@ fn default_socket_path() -> String {
     })
 }
 
-const DEFAULT_CACHE_TTL_SECS: u64 = 900;
-const DEFAULT_PROXY: &str = "http://127.0.0.1:7890";
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    let email = std::env::var("BW_EMAIL").expect("BW_EMAIL environment variable must be set");
-    let base_url =
-        std::env::var("BW_BASE_URL").unwrap_or_else(|_| "https://api.bitwarden.com".to_string());
-    let identity_url = std::env::var("BW_IDENTITY_URL")
-        .unwrap_or_else(|_| "https://identity.bitwarden.com".to_string());
-    let proxy = std::env::var("BW_PROXY").unwrap_or_else(|_| DEFAULT_PROXY.to_string());
-    let proxy = if proxy.is_empty() { None } else { Some(proxy) };
-    let cache_ttl = std::env::var("BW_CACHE_TTL")
-        .ok()
-        .and_then(|ttl| ttl.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_CACHE_TTL_SECS);
+    // Load config file, then apply env var overrides
+    let mut config = config::Config::load();
+    config.apply_env_overrides();
+    config.validate()?;
 
-    let client = bw_core::api::Client::new(&base_url, &identity_url, proxy.as_deref());
+    let email = config.email.clone().unwrap(); // safe: validate() checked
+    let api_url = config.api_url();
+    let identity_url = config.identity_url();
 
-    let mut initial_state = state::State::new(Duration::from_secs(cache_ttl));
+    log::info!("Email: {email}");
+    log::info!("API URL: {api_url}");
+    log::info!("Identity URL: {identity_url}");
+    if let Some(proxy) = &config.proxy {
+        log::info!("Proxy: {proxy}");
+    }
+
+    let client = bw_core::api::Client::new(&api_url, &identity_url, config.proxy.as_deref());
+
+    let mut initial_state = state::State::new(Duration::from_secs(config.lock_timeout));
     initial_state.email = Some(email);
 
     let state = Arc::new(Mutex::new(initial_state));
