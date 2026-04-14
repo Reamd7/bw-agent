@@ -1,5 +1,19 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/*",
+    "crates/bw-core",
+    "crates/bw-ui",
+    "crates/bw-agent",
 ]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85.0"
+license = "MIT"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"

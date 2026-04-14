@@ -1,0 +1,26 @@
+[package]
+name = "bw-agent"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+bw-core = { path = "../bw-core" }
+bw-ui = { path = "../bw-ui" }
+anyhow = "1.0.102"
+log = "0.4.29"
+env_logger = "0.11.10"
+ssh-agent-lib = "0.5.2"
+ssh-key = { version = "0.6.7", features = ["ed25519", "rsa"] }
+rsa = "0.9.10"
+sha1 = "0.11.0"
+sha2 = "0.11.0"
+signature = "2.2.0"
+rand = "0.10.1"
+tokio = { version = "1.51", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints]
+workspace = true
