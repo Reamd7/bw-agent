@@ -2,6 +2,7 @@ use zeroize::Zeroize as _;
 
 const LEN: usize = 4096;
 
+#[cfg(not(windows))]
 static REGION_LOCK_WORKS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 pub struct Vec {
@@ -12,6 +13,11 @@ pub struct Vec {
 impl Default for Vec {
     fn default() -> Self {
         let data = Box::new(arrayvec::ArrayVec::<_, LEN>::new());
+        // On Windows, region::lock succeeds but VirtualUnlock panics on drop
+        // (error 158 "segment already unlocked"). Skip locking on Windows.
+        #[cfg(windows)]
+        let lock = None;
+        #[cfg(not(windows))]
         let lock = match REGION_LOCK_WORKS.get() {
             Some(true) => Some(region::lock(data.as_ptr(), data.capacity()).unwrap()),
             Some(false) => None,
