@@ -636,6 +636,8 @@ dependencies = [
  "log",
  "rand 0.10.1",
  "rsa",
+ "serde",
+ "serde_json",
  "sha1",
  "sha2 0.11.0",
  "signature",
