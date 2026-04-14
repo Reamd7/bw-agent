@@ -649,3 +649,405 @@ struct SyncResPasswordHistory {
     #[serde(rename = "Password", alias = "password")]
     password: Option<String>,
 }
+
+const BITWARDEN_CLIENT: &str = "cli";
+const DEVICE_TYPE: u8 = 8;
+
+#[derive(Debug, Clone)]
+pub struct Client {
+    base_url: String,
+    identity_url: String,
+    proxy: Option<String>,
+}
+
+impl Client {
+    pub fn new(base_url: &str, identity_url: &str, proxy: Option<&str>) -> Self {
+        Self {
+            base_url: base_url.to_string(),
+            identity_url: identity_url.to_string(),
+            proxy: proxy.map(String::from),
+        }
+    }
+
+    pub fn bitwarden_cloud(proxy: Option<&str>) -> Self {
+        Self::new(
+            "https://api.bitwarden.com",
+            "https://identity.bitwarden.com",
+            proxy,
+        )
+    }
+
+    fn reqwest_client(&self) -> crate::error::Result<reqwest::Client> {
+        let mut default_headers = reqwest::header::HeaderMap::new();
+        default_headers.insert(
+            "Bitwarden-Client-Name",
+            reqwest::header::HeaderValue::from_static(BITWARDEN_CLIENT),
+        );
+        default_headers.insert(
+            "Bitwarden-Client-Version",
+            reqwest::header::HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
+        );
+        default_headers.insert(
+            "Device-Type",
+            reqwest::header::HeaderValue::from_static("8"),
+        );
+
+        let mut builder = reqwest::Client::builder()
+            .user_agent(format!("bw-agent/{}", env!("CARGO_PKG_VERSION")))
+            .default_headers(default_headers);
+
+        if let Some(proxy_url) = &self.proxy {
+            let proxy = reqwest::Proxy::all(proxy_url)
+                .map_err(|source| crate::error::Error::CreateReqwestClient { source })?;
+            builder = builder.proxy(proxy);
+        }
+
+        builder
+            .build()
+            .map_err(|source| crate::error::Error::CreateReqwestClient { source })
+    }
+
+    fn api_url(&self, path: &str) -> String {
+        format!("{}{}", self.base_url, path)
+    }
+
+    fn identity_url(&self, path: &str) -> String {
+        format!("{}{}", self.identity_url, path)
+    }
+
+    pub async fn prelogin(
+        &self,
+        email: &str,
+    ) -> crate::error::Result<(KdfType, u32, Option<u32>, Option<u32>)> {
+        let prelogin = PreloginReq {
+            email: email.to_string(),
+        };
+        let client = self.reqwest_client()?;
+        let res = client
+            .post(self.identity_url("/accounts/prelogin"))
+            .json(&prelogin)
+            .send()
+            .await
+            .map_err(|source| crate::error::Error::Reqwest { source })?;
+        let prelogin_res: PreloginRes = res.json_with_path().await?;
+        Ok((
+            prelogin_res.kdf,
+            prelogin_res.kdf_iterations,
+            prelogin_res.kdf_memory,
+            prelogin_res.kdf_parallelism,
+        ))
+    }
+
+    pub async fn login(
+        &self,
+        email: &str,
+        device_id: &str,
+        password_hash: &crate::locked::PasswordHash,
+        two_factor_token: Option<&str>,
+        two_factor_provider: Option<TwoFactorProviderType>,
+    ) -> crate::error::Result<(String, String, String)> {
+        let connect_req = ConnectTokenReq {
+            auth: ConnectTokenAuth::Password(ConnectTokenPassword {
+                username: email.to_string(),
+                password: crate::base64::encode(password_hash.hash()),
+            }),
+            grant_type: "password".to_string(),
+            scope: "api offline_access".to_string(),
+            client_id: BITWARDEN_CLIENT.to_string(),
+            device_type: u32::from(DEVICE_TYPE),
+            device_identifier: device_id.to_string(),
+            device_name: "bw-agent".to_string(),
+            device_push_token: String::new(),
+            two_factor_token: two_factor_token.map(std::string::ToString::to_string),
+            two_factor_provider: two_factor_provider.map(|ty| ty as u32),
+        };
+
+        let client = self.reqwest_client()?;
+        let res = client
+            .post(self.identity_url("/connect/token"))
+            .form(&connect_req)
+            .header("auth-email", crate::base64::encode_url_safe_no_pad(email))
+            .send()
+            .await
+            .map_err(|source| crate::error::Error::Reqwest { source })?;
+
+        if res.status() == reqwest::StatusCode::OK {
+            let connect_res: ConnectTokenRes = res.json_with_path().await?;
+            Ok((
+                connect_res.access_token,
+                connect_res.refresh_token,
+                connect_res.key,
+            ))
+        } else {
+            let code = res.status().as_u16();
+            match res.text().await {
+                Ok(body) => match body.clone().json_with_path() {
+                    Ok(json) => Err(classify_login_error(&json, code)),
+                    Err(e) => {
+                        log::warn!("{e}: {body}");
+                        Err(crate::error::Error::RequestFailed { status: code })
+                    }
+                },
+                Err(e) => {
+                    log::warn!("failed to read response body: {e}");
+                    Err(crate::error::Error::RequestFailed { status: code })
+                }
+            }
+        }
+    }
+
+    pub async fn sync(
+        &self,
+        access_token: &str,
+    ) -> crate::error::Result<(
+        String,
+        String,
+        std::collections::HashMap<String, String>,
+        Vec<crate::db::Entry>,
+    )> {
+        let client = self.reqwest_client()?;
+        let res = client
+            .get(self.api_url("/sync"))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .header("Bitwarden-Client-Version", "2024.12.0")
+            .send()
+            .await
+            .map_err(|source| crate::error::Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => {
+                let sync_res: SyncRes = res.json_with_path().await?;
+                let folders = sync_res.folders.clone();
+                let ciphers = sync_res
+                    .ciphers
+                    .iter()
+                    .filter_map(|cipher| cipher.to_entry(&folders))
+                    .collect();
+                let org_keys = sync_res
+                    .profile
+                    .organizations
+                    .iter()
+                    .map(|org| (org.id.clone(), org.key.clone()))
+                    .collect();
+                Ok((
+                    sync_res.profile.key,
+                    sync_res.profile.private_key,
+                    org_keys,
+                    ciphers,
+                ))
+            }
+            reqwest::StatusCode::UNAUTHORIZED => Err(crate::error::Error::RequestUnauthorized),
+            _ => Err(crate::error::Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub async fn exchange_refresh_token(
+        &self,
+        refresh_token: &str,
+    ) -> crate::error::Result<String> {
+        let connect_req = ConnectRefreshTokenReq {
+            grant_type: "refresh_token".to_string(),
+            client_id: BITWARDEN_CLIENT.to_string(),
+            refresh_token: refresh_token.to_string(),
+        };
+        let client = self.reqwest_client()?;
+        let res = client
+            .post(self.identity_url("/connect/token"))
+            .form(&connect_req)
+            .send()
+            .await
+            .map_err(|source| crate::error::Error::Reqwest { source })?;
+        let connect_res: ConnectRefreshTokenRes = res.json_with_path().await?;
+        Ok(connect_res.access_token)
+    }
+}
+
+fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> crate::error::Error {
+    if let Some(providers) = &error_res.two_factor_providers {
+        if !providers.is_empty() {
+            return crate::error::Error::TwoFactorRequired {
+                providers: providers.clone(),
+                sso_email_2fa_session_token: error_res.sso_email_2fa_session_token.clone(),
+            };
+        }
+    }
+
+    if error_res.error == "invalid_grant" {
+        return crate::error::Error::IncorrectPassword {
+            message: error_res.error_model.as_ref().map_or_else(
+                || error_res.error_description.clone().unwrap_or_default(),
+                |m| m.message.clone(),
+            ),
+        };
+    }
+
+    crate::error::Error::RequestFailed { status: code }
+}
+
+pub fn generate_device_id() -> String {
+    uuid::Uuid::new_v4().hyphenated().to_string()
+}
+
+pub struct LoginSession {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub kdf: KdfType,
+    pub iterations: u32,
+    pub memory: Option<u32>,
+    pub parallelism: Option<u32>,
+    pub protected_key: String,
+    pub email: String,
+    pub identity: crate::identity::Identity,
+}
+
+pub async fn full_login(
+    client: &Client,
+    email: &str,
+    password: &crate::locked::Password,
+) -> crate::error::Result<LoginSession> {
+    let device_id = generate_device_id();
+    let (kdf, iterations, memory, parallelism) = client.prelogin(email).await?;
+
+    let identity = crate::identity::Identity::new(
+        email,
+        password,
+        kdf,
+        iterations,
+        memory,
+        parallelism,
+    )?;
+
+    let (access_token, refresh_token, protected_key) = client
+        .login(email, &device_id, &identity.master_password_hash, None, None)
+        .await?;
+
+    Ok(LoginSession {
+        access_token,
+        refresh_token,
+        kdf,
+        iterations,
+        memory,
+        parallelism,
+        protected_key,
+        email: email.to_string(),
+        identity,
+    })
+}
+
+pub struct SyncData {
+    pub protected_key: String,
+    pub protected_private_key: String,
+    pub org_keys: std::collections::HashMap<String, String>,
+    pub entries: Vec<crate::db::Entry>,
+}
+
+pub async fn sync_vault(
+    client: &Client,
+    access_token: &str,
+) -> crate::error::Result<SyncData> {
+    let (protected_key, protected_private_key, org_keys, entries) = client.sync(access_token).await?;
+    Ok(SyncData {
+        protected_key,
+        protected_private_key,
+        org_keys,
+        entries,
+    })
+}
+
+pub fn unlock_vault(
+    email: &str,
+    password: &crate::locked::Password,
+    kdf: KdfType,
+    iterations: u32,
+    memory: Option<u32>,
+    parallelism: Option<u32>,
+    protected_key: &str,
+    protected_private_key: &str,
+    protected_org_keys: &std::collections::HashMap<String, String>,
+) -> crate::error::Result<(
+    crate::locked::Keys,
+    std::collections::HashMap<String, crate::locked::Keys>,
+)> {
+    let identity = crate::identity::Identity::new(
+        email,
+        password,
+        kdf,
+        iterations,
+        memory,
+        parallelism,
+    )?;
+
+    let protected_key = crate::cipherstring::CipherString::new(protected_key)?;
+    let key = match protected_key.decrypt_locked_symmetric(&identity.keys) {
+        Ok(master_keys) => crate::locked::Keys::new(master_keys),
+        Err(crate::error::Error::InvalidMac) => {
+            return Err(crate::error::Error::IncorrectPassword {
+                message: "Password is incorrect. Try again.".to_string(),
+            });
+        }
+        Err(e) => return Err(e),
+    };
+
+    let protected_private_key = crate::cipherstring::CipherString::new(protected_private_key)?;
+    let private_key =
+        crate::locked::PrivateKey::new(protected_private_key.decrypt_locked_symmetric(&key)?);
+
+    let mut org_keys_map = std::collections::HashMap::new();
+    for (org_id, protected_org_key) in protected_org_keys {
+        let protected_org_key = crate::cipherstring::CipherString::new(protected_org_key)?;
+        let org_key = crate::locked::Keys::new(
+            protected_org_key.decrypt_locked_asymmetric(&private_key)?,
+        );
+        org_keys_map.insert(org_id.clone(), org_key);
+    }
+
+    Ok((key, org_keys_map))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_client_bitwarden_cloud_urls() {
+        let client = Client::bitwarden_cloud(None);
+        assert_eq!(client.api_url("/sync"), "https://api.bitwarden.com/sync");
+        assert_eq!(
+            client.identity_url("/connect/token"),
+            "https://identity.bitwarden.com/connect/token"
+        );
+    }
+
+    #[test]
+    fn test_client_with_proxy_builds() {
+        let client = Client::new(
+            "https://api.bitwarden.com",
+            "https://identity.bitwarden.com",
+            Some("http://127.0.0.1:7890"),
+        );
+        let _ = client.reqwest_client().unwrap();
+    }
+
+    #[test]
+    fn test_classify_login_error_incorrect_password() {
+        let error_res = ConnectErrorRes {
+            error: "invalid_grant".to_string(),
+            error_description: Some("invalid_username_or_password".to_string()),
+            error_model: Some(ConnectErrorResErrorModel {
+                message: "Username or password is incorrect.".to_string(),
+            }),
+            two_factor_providers: None,
+            sso_email_2fa_session_token: None,
+        };
+        let err = classify_login_error(&error_res, 400);
+        assert!(matches!(err, crate::error::Error::IncorrectPassword { .. }));
+    }
+
+    #[test]
+    fn test_device_id_is_uuid_format() {
+        let id = generate_device_id();
+        assert_eq!(id.len(), 36);
+        assert_eq!(id.chars().filter(|c| *c == '-').count(), 4);
+    }
+}
