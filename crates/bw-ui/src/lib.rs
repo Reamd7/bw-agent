@@ -7,13 +7,23 @@ pub fn prompt_master_password() -> Option<String> {
     let result: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let result_clone = result.clone();
 
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([400.0, 180.0])
             .with_resizable(false)
             .with_always_on_top(),
         ..Default::default()
     };
+
+    // Allow running the event loop on a non-main thread (needed when called
+    // from tokio::task::spawn_blocking on a worker thread).
+    #[cfg(target_os = "windows")]
+    {
+        options.event_loop_builder = Some(Box::new(|builder| {
+            use winit::platform::windows::EventLoopBuilderExtWindows as _;
+            builder.with_any_thread(true);
+        }));
+    }
 
     let _ = eframe::run_native(
         "Bitwarden SSH Agent - Unlock",

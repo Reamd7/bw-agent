@@ -684,6 +684,7 @@ name = "bw-ui"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "winit",
 ]
 
 [[package]]
