@@ -1,5 +1,7 @@
 mod auth;
 mod config;
+#[cfg(windows)]
+mod pipe;
 mod ssh_agent;
 mod state;
 
@@ -53,7 +55,7 @@ async fn main() -> anyhow::Result<()> {
         let pipe_name =
             std::env::var("BW_PIPE_NAME").unwrap_or_else(|_| DEFAULT_PIPE_NAME.to_string());
         log::info!("Listening on named pipe: {pipe_name}");
-        let listener = ssh_agent_lib::agent::NamedPipeListener::bind(pipe_name)?;
+        let listener = pipe::SecureNamedPipeListener::bind(&pipe_name)?;
         ssh_agent_lib::agent::listen(listener, handler).await?;
     }
 
