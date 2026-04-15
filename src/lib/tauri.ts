@@ -42,7 +42,7 @@ export const submitPassword = (password: string | null) => invoke<void>("submit_
 export const submitTwoFactor = (provider: number, code: string) => invoke<void>("submit_two_factor", { provider, code });
 export const listKeys = () => invoke<SshKeyInfo[]>("list_keys");
 export const getAccessLogs = (limit: number) => invoke<AccessLogEntry[]>("get_access_logs", { limit });
-export const approveRequest = (request_id: string, approved: boolean) => invoke<void>("approve_request", { request_id, approved });
+export const approveRequest = (request_id: string, approved: boolean) => invoke<void>("approve_request", { requestId: request_id, approved });
 export const getPendingApprovals = () => invoke<ApprovalRequest[]>("get_pending_approvals");
 export const lockVault = () => invoke<void>("lock_vault");
 export const getConfig = () => invoke<Config>("get_config");
