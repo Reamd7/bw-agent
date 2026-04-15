@@ -258,10 +258,37 @@ impl ssh_agent_lib::agent::ListeningSocket for SecureNamedPipeListener {
     }
 }
 
+// ---- Client PID extraction ----
+
+unsafe extern "system" {
+    fn GetNamedPipeClientProcessId(pipe: isize, client_process_id: *mut u32) -> i32;
+}
+
+/// Extract the client process ID from a connected `NamedPipeServer`.
+fn get_client_pid(pipe: &NamedPipeServer) -> u32 {
+    use std::os::windows::io::AsRawHandle;
+    let handle = pipe.as_raw_handle() as isize;
+    let mut pid: u32 = 0;
+    let ok = unsafe { GetNamedPipeClientProcessId(handle, &mut pid) };
+    if ok == 0 {
+        log::warn!(
+            "GetNamedPipeClientProcessId failed: {}",
+            io::Error::last_os_error()
+        );
+        0
+    } else {
+        pid
+    }
+}
+
 /// `Agent` impl for our `SshAgentHandler` so `ssh_agent_lib::agent::listen()`
 /// works with our custom listener.
-impl ssh_agent_lib::agent::Agent<SecureNamedPipeListener> for crate::ssh_agent::SshAgentHandler {
-    fn new_session(&mut self, _socket: &NamedPipeServer) -> impl ssh_agent_lib::agent::Session {
-        self.clone()
+impl<U: crate::UiCallback> ssh_agent_lib::agent::Agent<SecureNamedPipeListener>
+    for crate::ssh_agent::SshAgentHandler<U>
+{
+    fn new_session(&mut self, socket: &NamedPipeServer) -> impl ssh_agent_lib::agent::Session {
+        let pid = get_client_pid(socket);
+        log::debug!("New session from client PID: {pid}");
+        self.with_client_pid(pid)
     }
 }

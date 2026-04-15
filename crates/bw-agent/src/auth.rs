@@ -2,9 +2,10 @@ use crate::state::State;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-pub async fn ensure_unlocked(
+pub async fn ensure_unlocked<U: crate::UiCallback>(
     state: Arc<Mutex<State>>,
     client: &bw_core::api::Client,
+    ui: &U,
 ) -> anyhow::Result<()> {
     let is_unlocked = state.lock().await.is_unlocked();
     if is_unlocked {
@@ -12,29 +13,48 @@ pub async fn ensure_unlocked(
         return Ok(());
     }
 
-    let password_str = tokio::task::spawn_blocking(bw_ui::prompt_master_password)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Password prompt cancelled by user"))?;
+    let email = state
+        .lock()
+        .await
+        .email
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("Email not configured"))?;
 
-    let mut password_vec = bw_core::locked::Vec::new();
-    password_vec.extend(password_str.bytes());
-    let password = bw_core::locked::Password::new(password_vec);
+    let mut error: Option<String> = None;
+    for _attempt in 0..3 {
+        let password_str = ui
+            .request_password(&email, error.as_deref())
+            .await
+            .ok_or_else(|| anyhow::anyhow!("Password prompt cancelled by user"))?;
 
+        let mut password_vec = bw_core::locked::Vec::new();
+        password_vec.extend(password_str.bytes());
+        let password = bw_core::locked::Password::new(password_vec);
+
+        match try_login(state.clone(), client, &email, &password, ui).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                error = Some(e.to_string());
+            }
+        }
+    }
+
+    anyhow::bail!("Failed to unlock after 3 attempts");
+}
+
+async fn try_login<U: crate::UiCallback>(
+    state: Arc<Mutex<State>>,
+    client: &bw_core::api::Client,
+    email: &str,
+    password: &bw_core::locked::Password,
+    ui: &U,
+) -> anyhow::Result<()> {
     let login_context = {
         let state = state.lock().await;
         if state.access_token.is_none() {
-            LoginContext::FirstLogin {
-                email: state
-                    .email
-                    .clone()
-                    .ok_or_else(|| anyhow::anyhow!("Email not configured"))?,
-            }
+            LoginContext::FirstLogin
         } else {
             LoginContext::Reunlock {
-                email: state
-                    .email
-                    .clone()
-                    .ok_or_else(|| anyhow::anyhow!("Email not configured"))?,
                 access_token: state
                     .access_token
                     .clone()
@@ -59,12 +79,67 @@ pub async fn ensure_unlocked(
     };
 
     match login_context {
-        LoginContext::FirstLogin { email } => {
-            let session = bw_core::api::full_login(client, &email, &password).await?;
-            let sync_data = bw_core::api::sync_vault(client, &session.access_token).await?;
+        LoginContext::FirstLogin => {
+            let session = match bw_core::api::full_login(client, email, password).await {
+                Ok(session) => session,
+                Err(bw_core::error::Error::TwoFactorRequired { providers, .. }) => {
+                    let provider_ids: Vec<u8> = providers.iter().map(|p| *p as u8).collect();
+                    let (provider_type, code) = ui
+                        .request_two_factor(&provider_ids)
+                        .await
+                        .ok_or_else(|| anyhow::anyhow!("Two-factor prompt cancelled"))?;
+
+                    let (kdf, iterations, memory, parallelism) = client
+                        .prelogin(email)
+                        .await
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    let identity = bw_core::identity::Identity::new(
+                        email,
+                        password,
+                        kdf,
+                        iterations,
+                        memory,
+                        parallelism,
+                    )
+                    .map_err(|e| anyhow::anyhow!(e))?;
+
+                    let two_factor_provider =
+                        bw_core::api::TwoFactorProviderType::try_from(u64::from(provider_type))
+                            .map_err(|e| anyhow::anyhow!(e))?;
+
+                    let device_id = uuid::Uuid::new_v4().to_string();
+                    let (access_token, refresh_token, protected_key) = client
+                        .login(
+                            email,
+                            &device_id,
+                            &identity.master_password_hash,
+                            Some(&code),
+                            Some(two_factor_provider),
+                        )
+                        .await
+                        .map_err(|e| anyhow::anyhow!(e))?;
+
+                    bw_core::api::LoginSession {
+                        access_token,
+                        refresh_token,
+                        kdf,
+                        iterations,
+                        memory,
+                        parallelism,
+                        protected_key,
+                        email: email.to_string(),
+                        identity,
+                    }
+                }
+                Err(e) => return Err(anyhow::anyhow!(e)),
+            };
+
+            let sync_data = bw_core::api::sync_vault(client, &session.access_token)
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?;
             let (keys, org_keys) = bw_core::api::unlock_vault(
-                &email,
-                &password,
+                email,
+                password,
                 session.kdf,
                 session.iterations,
                 session.memory,
@@ -72,12 +147,13 @@ pub async fn ensure_unlocked(
                 &session.protected_key,
                 &sync_data.protected_private_key,
                 &sync_data.org_keys,
-            )?;
+            )
+            .map_err(|e| anyhow::anyhow!(e))?;
 
             let mut state = state.lock().await;
             state.access_token = Some(session.access_token);
             state.refresh_token = Some(session.refresh_token);
-            state.email = Some(email);
+            state.email = Some(email.to_string());
             state.kdf = Some(session.kdf);
             state.iterations = Some(session.iterations);
             state.memory = session.memory;
@@ -89,7 +165,6 @@ pub async fn ensure_unlocked(
             state.set_unlocked(keys, org_keys);
         }
         LoginContext::Reunlock {
-            email,
             access_token,
             kdf,
             iterations,
@@ -100,8 +175,8 @@ pub async fn ensure_unlocked(
             protected_org_keys,
         } => {
             let (keys, org_keys) = bw_core::api::unlock_vault(
-                &email,
-                &password,
+                email,
+                password,
                 kdf,
                 iterations,
                 memory,
@@ -109,7 +184,8 @@ pub async fn ensure_unlocked(
                 &protected_key,
                 &protected_private_key,
                 &protected_org_keys,
-            )?;
+            )
+            .map_err(|e| anyhow::anyhow!(e))?;
 
             {
                 let mut state = state.lock().await;
@@ -153,11 +229,8 @@ pub fn decrypt_cipher(
 }
 
 enum LoginContext {
-    FirstLogin {
-        email: String,
-    },
+    FirstLogin,
     Reunlock {
-        email: String,
         access_token: String,
         kdf: bw_core::api::KdfType,
         iterations: u32,

@@ -23,3 +23,9 @@ target
 .opencode
 .reference
 .sisyphus
+
+node_modules
+dist
+
+# Tauri auto-generated files
+src-tauri/gen

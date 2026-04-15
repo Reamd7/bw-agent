@@ -1,3 +1,5 @@
+use crate::access_log::AccessLog;
+use crate::approval::ApprovalQueue;
 use crate::auth;
 use crate::state::State;
 use signature::Signer as _;
@@ -7,15 +9,62 @@ use tokio::sync::Mutex;
 const SSH_AGENT_RSA_SHA2_256: u32 = 2;
 const SSH_AGENT_RSA_SHA2_512: u32 = 4;
 
-#[derive(Clone)]
-pub struct SshAgentHandler {
+pub struct SshAgentHandler<U: crate::UiCallback> {
     state: Arc<Mutex<State>>,
     client: bw_core::api::Client,
+    ui: Arc<U>,
+    approval_queue: Arc<ApprovalQueue>,
+    access_log: Arc<AccessLog>,
+    /// PID of the connected client. Set per-session in `new_session`.
+    client_pid: u32,
 }
 
-impl SshAgentHandler {
-    pub fn new(state: Arc<Mutex<State>>, client: bw_core::api::Client) -> Self {
-        Self { state, client }
+impl<U: crate::UiCallback> Clone for SshAgentHandler<U> {
+    fn clone(&self) -> Self {
+        Self {
+            state: Arc::clone(&self.state),
+            client: self.client.clone(),
+            ui: Arc::clone(&self.ui),
+            approval_queue: Arc::clone(&self.approval_queue),
+            access_log: Arc::clone(&self.access_log),
+            client_pid: self.client_pid,
+        }
+    }
+}
+
+impl<U: crate::UiCallback> SshAgentHandler<U> {
+    pub fn new(
+        state: Arc<Mutex<State>>,
+        client: bw_core::api::Client,
+        ui: Arc<U>,
+        approval_queue: Arc<ApprovalQueue>,
+        access_log: Arc<AccessLog>,
+    ) -> Self {
+        Self {
+            state,
+            client,
+            ui,
+            approval_queue,
+            access_log,
+            client_pid: 0,
+        }
+    }
+
+    /// Create a per-session clone with the given client PID.
+    pub fn with_client_pid(&self, pid: u32) -> Self {
+        let mut handler = self.clone();
+        handler.client_pid = pid;
+        handler
+    }
+
+    /// Get a reference to the approval queue (for Tauri IPC commands).
+    pub fn approval_queue(&self) -> &Arc<ApprovalQueue> {
+        &self.approval_queue
+    }
+
+    /// Get a reference to the access log (for Tauri IPC commands).
+    pub fn access_log(&self) -> &Arc<AccessLog> {
+        &self.access_log
     }
 }
 
@@ -23,12 +72,64 @@ fn agent_error(error: impl std::fmt::Display) -> ssh_agent_lib::error::AgentErro
     ssh_agent_lib::error::AgentError::other(std::io::Error::other(error.to_string()))
 }
 
+/// Best-effort resolve of a client PID to its executable path.
+fn resolve_client_exe(pid: u32) -> String {
+    if pid == 0 {
+        return "unknown".to_string();
+    }
+
+    #[cfg(windows)]
+    {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStringExt;
+
+        const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+
+        unsafe extern "system" {
+            fn OpenProcess(desired_access: u32, inherit_handle: i32, pid: u32) -> isize;
+            fn CloseHandle(handle: isize) -> i32;
+            fn QueryFullProcessImageNameW(
+                process: isize,
+                flags: u32,
+                name: *mut u16,
+                size: *mut u32,
+            ) -> i32;
+        }
+
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle == 0 {
+                return format!("pid:{pid}");
+            }
+            let mut buf = [0u16; 260];
+            let mut size = buf.len() as u32;
+            if QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut size) != 0 {
+                CloseHandle(handle);
+                let path = OsString::from_wide(&buf[..size as usize]);
+                return path.to_string_lossy().into_owned();
+            }
+            CloseHandle(handle);
+            format!("pid:{pid}")
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        // On Linux, read /proc/<pid>/exe symlink.
+        if let Ok(exe) = std::fs::read_link(format!("/proc/{pid}/exe")) {
+            return exe.to_string_lossy().into_owned();
+        }
+        // On macOS, fall back to pid.
+        format!("pid:{pid}")
+    }
+}
+
 #[ssh_agent_lib::async_trait]
-impl ssh_agent_lib::agent::Session for SshAgentHandler {
+impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> {
     async fn request_identities(
         &mut self,
     ) -> Result<Vec<ssh_agent_lib::proto::Identity>, ssh_agent_lib::error::AgentError> {
-        auth::ensure_unlocked(self.state.clone(), &self.client)
+        auth::ensure_unlocked(self.state.clone(), &self.client, self.ui.as_ref())
             .await
             .map_err(agent_error)?;
 
@@ -66,13 +167,81 @@ impl ssh_agent_lib::agent::Session for SshAgentHandler {
         &mut self,
         request: ssh_agent_lib::proto::SignRequest,
     ) -> Result<ssh_agent_lib::ssh_key::Signature, ssh_agent_lib::error::AgentError> {
-        auth::ensure_unlocked(self.state.clone(), &self.client)
+        auth::ensure_unlocked(self.state.clone(), &self.client, self.ui.as_ref())
             .await
             .map_err(agent_error)?;
 
         let requested_pubkey = ssh_agent_lib::ssh_key::PublicKey::from(request.pubkey.clone());
         let requested_bytes = requested_pubkey.to_bytes().map_err(agent_error)?;
+        let requested_fingerprint = requested_pubkey.fingerprint(Default::default());
 
+        // Find the matching entry name for the approval request.
+        let (key_name, fingerprint_str) = {
+            let state = self.state.lock().await;
+            let mut found = None;
+            for entry in &state.entries {
+                if let bw_core::db::EntryData::SshKey {
+                    public_key: Some(encrypted_pubkey),
+                    ..
+                } = &entry.data
+                {
+                    if let Ok(pubkey_plain) = auth::decrypt_cipher(
+                        &state,
+                        encrypted_pubkey,
+                        entry.key.as_deref(),
+                        entry.org_id.as_deref(),
+                    ) {
+                        if let Ok(pubkey) =
+                            ssh_agent_lib::ssh_key::PublicKey::from_openssh(&pubkey_plain)
+                        {
+                            if let Ok(bytes) = pubkey.to_bytes() {
+                                if bytes == requested_bytes {
+                                    found = Some(entry.name.clone());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            (
+                found.unwrap_or_else(|| "unknown".to_string()),
+                requested_fingerprint.to_string(),
+            )
+        };
+
+        // Resolve client executable path from PID.
+        let client_exe = resolve_client_exe(self.client_pid);
+
+        let (approval_request, approval_rx) = self
+            .approval_queue
+            .create_request(&key_name, &fingerprint_str, &client_exe, self.client_pid)
+            .await;
+
+        if !self.ui.request_approval(&approval_request).await {
+            self.approval_queue.respond(&approval_request.id, false).await;
+        }
+
+        let approved = approval_rx.await.unwrap_or(false);
+
+        // Log the access regardless of approval result.
+        if let Err(e) = self.access_log.record(
+            &fingerprint_str,
+            &key_name,
+            &client_exe,
+            self.client_pid,
+            approved,
+        ) {
+            log::error!("Failed to write access log: {e}");
+        }
+
+        if !approved {
+            return Err(ssh_agent_lib::error::AgentError::Other(
+                "Sign request denied by user".into(),
+            ));
+        }
+
+        // Proceed with signing.
         let state = self.state.lock().await;
         for entry in &state.entries {
             if let bw_core::db::EntryData::SshKey {
@@ -187,7 +356,15 @@ mod tests {
         }
 
         let client = bw_core::api::Client::bitwarden_cloud(None);
-        let mut handler = SshAgentHandler::new(state, client);
+        let approval_queue = Arc::new(crate::approval::ApprovalQueue::new());
+        let access_log = Arc::new(crate::access_log::AccessLog::open_in_memory().unwrap());
+        let mut handler = SshAgentHandler::new(
+            state,
+            client,
+            Arc::new(crate::StubUiCallback),
+            approval_queue,
+            access_log,
+        );
 
         use ssh_agent_lib::agent::Session;
         let identities = handler
