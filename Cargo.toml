@@ -2,8 +2,8 @@
 resolver = "2"
 members = [
     "crates/bw-core",
-    "crates/bw-ui",
     "crates/bw-agent",
+    "src-tauri",
 ]
 
 [workspace.package]
