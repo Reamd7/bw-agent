@@ -144,7 +144,14 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
                         {
                             if let Ok(bytes) = pubkey.to_bytes() {
                                 if bytes == requested_bytes {
-                                    found = Some(entry.name.clone());
+                                    let decrypted_name = auth::decrypt_cipher(
+                                        &state,
+                                        &entry.name,
+                                        entry.key.as_deref(),
+                                        entry.org_id.as_deref(),
+                                    )
+                                    .unwrap_or_else(|_| entry.name.clone());
+                                    found = Some(decrypted_name);
                                     break;
                                 }
                             }

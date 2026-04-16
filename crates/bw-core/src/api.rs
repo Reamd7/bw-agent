@@ -700,6 +700,9 @@ impl Client {
             let proxy = reqwest::Proxy::all(proxy_url)
                 .map_err(|source| crate::error::Error::CreateReqwestClient { source })?;
             builder = builder.proxy(proxy);
+        } else {
+            // User didn't configure a proxy — bypass system proxy (e.g. Clash)
+            builder = builder.no_proxy();
         }
 
         builder
