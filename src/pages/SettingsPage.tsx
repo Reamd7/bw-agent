@@ -1,5 +1,5 @@
 import { createSignal, onMount, Show } from "solid-js";
-import { getConfig, saveConfig, lockVault, type Config } from "../lib/tauri";
+import { getConfig, saveConfig, lockVault, updateLockMode, type Config, type LockMode } from "../lib/tauri";
 import { store } from "../lib/store";
 
 function navigate(path: string) {
@@ -15,7 +15,7 @@ export default function SettingsPage() {
     email: "",
     base_url: "",
     identity_url: "",
-    lock_timeout: 3600,
+    lock_mode: { type: "timeout", seconds: 900 },
     proxy: "",
   });
   const [loading, setLoading] = createSignal(true);
@@ -23,11 +23,34 @@ export default function SettingsPage() {
   const [toast, setToast] = createSignal<{ message: string; type: "success" | "error" } | null>(null);
   let originalConfig: Config | null = null;
 
+  const [lockPreset, setLockPreset] = createSignal<string>("15m");
+
   onMount(async () => {
     try {
       const currentConfig = await getConfig();
       setConfig(currentConfig);
       originalConfig = { ...currentConfig };
+      
+      const mode = currentConfig.lock_mode;
+      if (mode.type === "timeout") {
+        if (mode.seconds === 60) setLockPreset("1m");
+        else if (mode.seconds === 300) setLockPreset("5m");
+        else if (mode.seconds === 900) setLockPreset("15m");
+        else if (mode.seconds === 1800) setLockPreset("30m");
+        else if (mode.seconds === 3600) setLockPreset("1h");
+        else if (mode.seconds === 14400) setLockPreset("4h");
+        else setLockPreset("custom");
+      } else if (mode.type === "system_idle") {
+        setLockPreset("idle");
+      } else if (mode.type === "on_sleep") {
+        setLockPreset("sleep");
+      } else if (mode.type === "on_lock") {
+        setLockPreset("lock");
+      } else if (mode.type === "on_restart") {
+        setLockPreset("restart");
+      } else if (mode.type === "never") {
+        setLockPreset("never");
+      }
     } catch (e) {
       console.error("Failed to load config:", e);
       setToast({ message: "Failed to load settings", type: "error" });
@@ -44,6 +67,7 @@ export default function SettingsPage() {
     try {
       const newConfig = config();
       await saveConfig(newConfig);
+      await updateLockMode(newConfig.lock_mode);
 
       const emailChanged = originalConfig && originalConfig.email !== newConfig.email;
       const baseUrlChanged = originalConfig && originalConfig.base_url !== newConfig.base_url;
@@ -63,6 +87,34 @@ export default function SettingsPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handlePresetChange = (preset: string) => {
+    setLockPreset(preset);
+    let newMode: LockMode;
+    const currentMode = config().lock_mode;
+    
+    switch (preset) {
+      case "1m": newMode = { type: "timeout", seconds: 60 }; break;
+      case "5m": newMode = { type: "timeout", seconds: 300 }; break;
+      case "15m": newMode = { type: "timeout", seconds: 900 }; break;
+      case "30m": newMode = { type: "timeout", seconds: 1800 }; break;
+      case "1h": newMode = { type: "timeout", seconds: 3600 }; break;
+      case "4h": newMode = { type: "timeout", seconds: 14400 }; break;
+      case "custom": 
+        newMode = { type: "timeout", seconds: currentMode.type === "timeout" ? currentMode.seconds : 900 }; 
+        break;
+      case "idle": 
+        newMode = { type: "system_idle", seconds: currentMode.type === "system_idle" ? currentMode.seconds : 300 }; 
+        break;
+      case "sleep": newMode = { type: "on_sleep" }; break;
+      case "lock": newMode = { type: "on_lock" }; break;
+      case "restart": newMode = { type: "on_restart" }; break;
+      case "never": newMode = { type: "never" }; break;
+      default: newMode = { type: "timeout", seconds: 900 };
+    }
+    
+    setConfig(prev => ({ ...prev, lock_mode: newMode }));
   };
 
   const updateField = (field: keyof Config, value: string | number | null) => {
@@ -181,22 +233,76 @@ export default function SettingsPage() {
                   </div>
 
                   <div class="sm:col-span-3">
-                    <label for="lock_timeout" class="block text-sm font-medium text-gray-700">
-                      Lock Timeout (seconds)
+                    <label for="lock_mode" class="block text-sm font-medium text-gray-700">
+                      Vault Timeout
                     </label>
                     <div class="mt-1">
-                      <input
-                        type="number"
-                        id="lock_timeout"
-                        min="0"
-                        value={config().lock_timeout}
-                        onInput={(e) => updateField("lock_timeout", parseInt(e.currentTarget.value) || 0)}
-                        class="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                      />
+                      <select
+                        id="lock_mode"
+                        value={lockPreset()}
+                        onChange={(e) => handlePresetChange(e.currentTarget.value)}
+                        class="block w-full rounded-md border-gray-300 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+                      >
+                        <optgroup label="Time-based">
+                          <option value="1m">1 Minute</option>
+                          <option value="5m">5 Minutes</option>
+                          <option value="15m">15 Minutes</option>
+                          <option value="30m">30 Minutes</option>
+                          <option value="1h">1 Hour</option>
+                          <option value="4h">4 Hours</option>
+                          <option value="custom">Custom...</option>
+                        </optgroup>
+                        <optgroup label="System Events">
+                          <option value="idle">On System Idle</option>
+                          <option value="sleep">On System Sleep</option>
+                          <option value="lock">On Screen Lock</option>
+                          <option value="restart">On Restart</option>
+                        </optgroup>
+                        <option value="never">Never</option>
+                      </select>
                     </div>
-                    <p class="mt-2 text-xs text-gray-500">
-                      Set to 0 to disable auto-lock.
-                    </p>
+                    
+                    <Show when={lockPreset() === "custom"}>
+                      <div class="mt-2">
+                        <label for="custom_seconds" class="sr-only">Seconds</label>
+                        <div class="flex items-center">
+                          <input
+                            type="number"
+                            id="custom_seconds"
+                            min="1"
+                            value={config().lock_mode.type === "timeout" ? (config().lock_mode as any).seconds : 900}
+                            onInput={(e) => {
+                              const val = parseInt(e.currentTarget.value) || 0;
+                              setConfig(prev => ({ ...prev, lock_mode: { type: "timeout", seconds: val } }));
+                            }}
+                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+                            placeholder="Seconds"
+                          />
+                          <span class="ml-2 text-sm text-gray-500">seconds</span>
+                        </div>
+                      </div>
+                    </Show>
+
+                    <Show when={lockPreset() === "idle"}>
+                      <div class="mt-2">
+                        <label for="idle_seconds" class="sr-only">Idle Duration (seconds)</label>
+                        <div class="flex items-center">
+                          <input
+                            type="number"
+                            id="idle_seconds"
+                            min="1"
+                            value={config().lock_mode.type === "system_idle" ? (config().lock_mode as any).seconds : 300}
+                            onInput={(e) => {
+                              const val = parseInt(e.currentTarget.value) || 0;
+                              setConfig(prev => ({ ...prev, lock_mode: { type: "system_idle", seconds: val } }));
+                            }}
+                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+                            placeholder="Seconds"
+                          />
+                          <span class="ml-2 text-sm text-gray-500">seconds</span>
+                        </div>
+                      </div>
+                    </Show>
                   </div>
 
                   <div class="sm:col-span-6 pt-6">

@@ -36,8 +36,17 @@ export default function DashboardPage() {
     try {
       setKeys(await listKeys());
       setKeysLoading(false);
+      setSynced(true);
     } catch {
-      // Vault not ready yet — stay in loading state
+      // If we've previously had a successful fetch (synced), a failure
+      // means the vault has genuinely locked/expired.
+      // If we've never synced, this is just the initial race condition
+      // (background sync_and_unlock hasn't finished yet) — stay loading
+      // and wait for the vault-synced event to trigger a retry.
+      if (synced()) {
+        setStore("locked", true);
+        navigate("/");
+      }
     }
   };
   const fetchLogs = async () => {
@@ -46,7 +55,10 @@ export default function DashboardPage() {
       setLogs(await getAccessLogs(50));
       setLogsLoading(false);
     } catch {
-      // Vault not ready yet — stay in loading state
+      if (synced()) {
+        setStore("locked", true);
+        navigate("/");
+      }
     }
   };
 
