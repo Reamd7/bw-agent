@@ -72,58 +72,6 @@ fn agent_error(error: impl std::fmt::Display) -> ssh_agent_lib::error::AgentErro
     ssh_agent_lib::error::AgentError::other(std::io::Error::other(error.to_string()))
 }
 
-/// Best-effort resolve of a client PID to its executable path.
-fn resolve_client_exe(pid: u32) -> String {
-    if pid == 0 {
-        return "unknown".to_string();
-    }
-
-    #[cfg(windows)]
-    {
-        use std::ffi::OsString;
-        use std::os::windows::ffi::OsStringExt;
-
-        const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
-
-        unsafe extern "system" {
-            fn OpenProcess(desired_access: u32, inherit_handle: i32, pid: u32) -> isize;
-            fn CloseHandle(handle: isize) -> i32;
-            fn QueryFullProcessImageNameW(
-                process: isize,
-                flags: u32,
-                name: *mut u16,
-                size: *mut u32,
-            ) -> i32;
-        }
-
-        unsafe {
-            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if handle == 0 {
-                return format!("pid:{pid}");
-            }
-            let mut buf = [0u16; 260];
-            let mut size = buf.len() as u32;
-            if QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut size) != 0 {
-                CloseHandle(handle);
-                let path = OsString::from_wide(&buf[..size as usize]);
-                return path.to_string_lossy().into_owned();
-            }
-            CloseHandle(handle);
-            format!("pid:{pid}")
-        }
-    }
-
-    #[cfg(unix)]
-    {
-        // On Linux, read /proc/<pid>/exe symlink.
-        if let Ok(exe) = std::fs::read_link(format!("/proc/{pid}/exe")) {
-            return exe.to_string_lossy().into_owned();
-        }
-        // On macOS, fall back to pid.
-        format!("pid:{pid}")
-    }
-}
-
 #[ssh_agent_lib::async_trait]
 impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> {
     async fn request_identities(
@@ -210,12 +158,17 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
             )
         };
 
-        // Resolve client executable path from PID.
-        let client_exe = resolve_client_exe(self.client_pid);
+        // Resolve full process chain from client PID.
+        let process_chain = crate::process::resolve_process_chain(self.client_pid);
+        // client_exe = topmost initiator (first in chain).
+        let client_exe = process_chain
+            .first()
+            .map(|p| p.exe.clone())
+            .unwrap_or_else(|| "unknown".to_string());
 
         let (approval_request, approval_rx) = self
             .approval_queue
-            .create_request(&key_name, &fingerprint_str, &client_exe, self.client_pid)
+            .create_request(&key_name, &fingerprint_str, &client_exe, self.client_pid, process_chain.clone())
             .await;
 
         if !self.ui.request_approval(&approval_request).await {
@@ -231,6 +184,7 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
             &client_exe,
             self.client_pid,
             approved,
+            &process_chain,
         ) {
             log::error!("Failed to write access log: {e}");
         }

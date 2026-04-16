@@ -1,4 +1,4 @@
-import { Show } from "solid-js";
+import { For, Show } from "solid-js";
 import type { ApprovalRequest } from "../lib/tauri";
 
 interface ApprovalDialogProps {
@@ -59,16 +59,48 @@ export function ApprovalDialog(props: ApprovalDialogProps) {
                   {req().key_fingerprint}
                 </span>
               </div>
-              <div class="flex justify-between">
-                <span class="font-medium text-gray-500">Client:</span>
-                <span class="font-semibold text-gray-900" title={req().client_exe}>
-                  {extractExeName(req().client_exe)}
-                </span>
+              <div class="flex justify-between items-start">
+                <span class="font-medium text-gray-500">Process:</span>
+                <div class="text-right">
+                  <Show
+                    when={req().process_chain.length > 0}
+                    fallback={
+                      <span class="font-semibold text-gray-900" title={req().client_exe}>
+                        {extractExeName(req().client_exe)} (PID: {req().client_pid})
+                      </span>
+                    }
+                  >
+                    <div class="flex items-center gap-1 flex-wrap justify-end">
+                      <For each={req().process_chain}>
+                        {(proc, index) => (
+                          <>
+                            <Show when={index() > 0}>
+                              <span class="text-gray-400 text-xs">→</span>
+                            </Show>
+                            <span
+                              class="font-semibold text-gray-900 cursor-default"
+                              title={`${proc.exe}\nPID: ${proc.pid}\n${proc.cmdline}`}
+                            >
+                              {extractExeName(proc.exe)}
+                            </span>
+                          </>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
               </div>
-              <div class="flex justify-between">
-                <span class="font-medium text-gray-500">PID:</span>
-                <span class="text-gray-900">{req().client_pid}</span>
-              </div>
+              <Show when={req().process_chain.length > 0}>
+                <div class="flex justify-between items-start">
+                  <span class="font-medium text-gray-500">Target:</span>
+                  <span
+                    class="font-mono text-xs text-gray-900 truncate max-w-[200px]"
+                    title={req().process_chain[req().process_chain.length - 1].cmdline}
+                  >
+                    {req().process_chain[req().process_chain.length - 1].cmdline}
+                  </span>
+                </div>
+              </Show>
               <div class="flex justify-between">
                 <span class="font-medium text-gray-500">Time:</span>
                 <span class="text-gray-900">{formatTime(req().timestamp)}</span>

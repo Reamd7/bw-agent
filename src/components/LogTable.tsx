@@ -57,7 +57,23 @@ export function LogTable(props: LogTableProps) {
                     {formatTime(log.timestamp)}
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    <div title={log.client_exe}>{extractExeName(log.client_exe)}</div>
+                    <Show
+                      when={log.process_chain && log.process_chain.length > 0}
+                      fallback={<div title={log.client_exe}>{extractExeName(log.client_exe)}</div>}
+                    >
+                      <div class="flex items-center gap-1" title={log.process_chain.map(p => `${p.exe} (${p.cmdline})`).join('\n')}>
+                        <For each={log.process_chain}>
+                          {(proc, index) => (
+                            <>
+                              <Show when={index() > 0}>
+                                <span class="text-gray-400 text-xs">→</span>
+                              </Show>
+                              <span>{extractExeName(proc.exe)}</span>
+                            </>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     <div title={log.key_fingerprint}>{log.key_name}</div>
