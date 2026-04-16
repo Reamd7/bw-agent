@@ -2,12 +2,11 @@
 
 mod commands;
 mod events;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+mod system_events;
 mod tray;
 
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::sync::{Arc, Mutex};
 
 use tauri::{Manager, WindowEvent};
 
@@ -122,7 +121,7 @@ fn main() {
             let password_tx = Arc::new(Mutex::new(None));
             let two_factor_tx = Arc::new(Mutex::new(None));
 
-            let mut initial_state = bw_agent::state::State::new(Duration::from_secs(config.lock_timeout));
+            let mut initial_state = bw_agent::state::State::new(config.lock_mode.cache_ttl());
             initial_state.email = config.email.clone();
             let agent_state = Arc::new(tokio::sync::Mutex::new(initial_state));
 
@@ -143,20 +142,41 @@ fn main() {
             });
 
             let agent_config = config.clone();
+            let agent_state_for_agent = Arc::clone(&agent_state);
+            let client_for_agent = client.clone();
+            let approval_queue_for_agent = Arc::clone(&approval_queue);
+            let access_log_for_agent = Arc::clone(&access_log);
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = bw_agent::start_agent_with_shared_state(
                     agent_config,
                     ui,
-                    agent_state,
-                    client,
-                    approval_queue,
-                    access_log,
+                    agent_state_for_agent,
+                    client_for_agent,
+                    approval_queue_for_agent,
+                    access_log_for_agent,
                 )
                 .await
                 {
                     log::error!("bw-agent SSH agent exited with error: {error}");
                 }
             });
+
+            // Start periodic vault sync (every 60s while unlocked).
+            start_background_tasks(
+                app_handle.clone(),
+                Arc::clone(&agent_state),
+                client.clone(),
+            );
+
+            // Initialize system event listeners (idle, sleep, lock, shutdown).
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            if let Err(error) = system_events::init(
+                &app_handle,
+                &config.lock_mode,
+                Arc::clone(&agent_state),
+            ) {
+                log::error!("Failed to initialize system event listeners: {error}");
+            }
 
             let main_window = app
                 .get_webview_window("main")
@@ -187,6 +207,7 @@ fn main() {
             commands::lock_vault,
             commands::get_config,
             commands::save_config,
+            commands::update_lock_mode,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -262,4 +283,88 @@ fn dirs_data_dir() -> std::path::PathBuf {
                 std::path::PathBuf::from(home).join(".local/share")
             })
     }
+}
+
+/// Background loop that:
+/// 1. Checks TTL expiry every 5s — if expired, clears state and pushes lock event to frontend.
+/// 2. Syncs vault data every 60s — on auth failure, forces re-login.
+fn start_background_tasks(
+    app_handle: tauri::AppHandle,
+    agent_state: Arc<tokio::sync::Mutex<bw_agent::state::State>>,
+    client: bw_core::api::Client,
+) {
+    tauri::async_runtime::spawn(async move {
+        let mut tick_count: u64 = 0;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+        interval.tick().await; // Skip the first immediate tick
+
+        loop {
+            interval.tick().await;
+            tick_count += 1;
+
+            // ── Expiry check (every 5s) ──────────────────────────────
+            {
+                let state = agent_state.lock().await;
+                if state.is_expired() {
+                    drop(state);
+                    // Keys exist but TTL exceeded — lock the vault proactively.
+                    let mut state = agent_state.lock().await;
+                    state.clear();
+                    drop(state);
+                    log::info!("Vault TTL expired — locking and notifying frontend");
+                    let _ = events::emit_lock_state_changed(&app_handle, true);
+                    continue;
+                }
+            }
+
+            // ── Periodic sync (every 60s = 12 ticks of 5s) ──────────
+            if tick_count % 12 != 0 {
+                continue;
+            }
+
+            let access_token = {
+                let state = agent_state.lock().await;
+                if !state.is_unlocked() {
+                    continue;
+                }
+                match state.access_token.clone() {
+                    Some(token) => token,
+                    None => continue,
+                }
+            };
+
+            match bw_core::api::sync_vault(&client, &access_token).await {
+                Ok(sync_data) => {
+                    let mut state = agent_state.lock().await;
+                    if state.is_unlocked() {
+                        state.entries = sync_data.entries;
+                        state.protected_org_keys = sync_data.org_keys;
+                        log::debug!("Periodic sync: updated {} entries", state.entries.len());
+                        let _ = events::emit_vault_synced(&app_handle, events::VaultSyncedPayload {
+                            success: true,
+                            error: None,
+                        });
+                    }
+                }
+                Err(error) => {
+                    let error_msg = error.to_string();
+                    log::warn!("Periodic sync failed: {error_msg}");
+
+                    let is_auth_error = error_msg.contains("401")
+                        || error_msg.to_lowercase().contains("unauthorized")
+                        || error_msg.to_lowercase().contains("token");
+                    if is_auth_error {
+                        log::warn!("Auth failure during sync — forcing re-login");
+                        agent_state.lock().await.clear();
+                        let _ = events::emit_lock_state_changed(&app_handle, true);
+                    }
+
+                    let _ = events::emit_vault_synced(&app_handle, events::VaultSyncedPayload {
+                        success: false,
+                        error: Some(error_msg),
+                    });
+                }
+            }
+        }
+    });
 }

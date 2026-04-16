@@ -9,8 +9,9 @@ pub struct State {
     pub org_keys: Option<HashMap<String, bw_core::locked::Keys>>,
     /// When the keys were last cached.
     pub cached_at: Option<Instant>,
-    /// How long cached keys remain valid.
-    pub cache_ttl: Duration,
+    /// How long cached keys remain valid. `None` = no time-based expiry
+    /// (lock is triggered by external events or "never" mode).
+    pub cache_ttl: Option<Duration>,
     /// Cached vault entries (encrypted cipherstrings).
     pub entries: Vec<bw_core::db::Entry>,
     /// Login session data for token refresh.
@@ -28,7 +29,7 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(cache_ttl: Duration) -> Self {
+    pub fn new(cache_ttl: Option<Duration>) -> Self {
         Self {
             keys: None,
             org_keys: None,
@@ -50,10 +51,22 @@ impl State {
 
     /// Check if keys are cached and still valid.
     pub fn is_unlocked(&self) -> bool {
-        if let (Some(_keys), Some(cached_at)) = (&self.keys, &self.cached_at) {
-            cached_at.elapsed() < self.cache_ttl
-        } else {
-            false
+        match (&self.keys, &self.cached_at) {
+            (Some(_), Some(cached_at)) => {
+                // If cache_ttl is None, keys never expire by time (event-based / never mode).
+                self.cache_ttl.map_or(true, |ttl| cached_at.elapsed() < ttl)
+            }
+            _ => false,
+        }
+    }
+
+    /// Returns true when keys were previously unlocked but have since expired
+    /// due to TTL. Distinguishes genuine expiry from "never unlocked yet".
+    pub fn is_expired(&self) -> bool {
+        match (&self.keys, &self.cached_at, self.cache_ttl) {
+            // Keys present, cached_at set, TTL set, and elapsed >= TTL → expired
+            (Some(_), Some(cached_at), Some(ttl)) => cached_at.elapsed() >= ttl,
+            _ => false,
         }
     }
 
@@ -102,14 +115,14 @@ mod tests {
 
     #[test]
     fn test_new_state_is_locked() {
-        let state = State::new(Duration::from_secs(900));
+        let state = State::new(Some(Duration::from_secs(900)));
         assert!(!state.is_unlocked());
         assert!(state.key(None).is_none());
     }
 
     #[test]
     fn test_unlock_and_check() {
-        let mut state = State::new(Duration::from_secs(900));
+        let mut state = State::new(Some(Duration::from_secs(900)));
         state.set_unlocked(dummy_keys(), HashMap::new());
         assert!(state.is_unlocked());
         assert!(state.key(None).is_some());
@@ -118,7 +131,7 @@ mod tests {
 
     #[test]
     fn test_cache_expires() {
-        let mut state = State::new(Duration::from_millis(1));
+        let mut state = State::new(Some(Duration::from_millis(1)));
         state.set_unlocked(dummy_keys(), HashMap::new());
         std::thread::sleep(Duration::from_millis(10));
         assert!(!state.is_unlocked());
@@ -127,7 +140,7 @@ mod tests {
 
     #[test]
     fn test_clear_locks() {
-        let mut state = State::new(Duration::from_secs(900));
+        let mut state = State::new(Some(Duration::from_secs(900)));
         state.set_unlocked(dummy_keys(), HashMap::new());
         state.clear();
         assert!(!state.is_unlocked());
@@ -136,10 +149,20 @@ mod tests {
 
     #[test]
     fn test_touch_refreshes_ttl() {
-        let mut state = State::new(Duration::from_secs(900));
+        let mut state = State::new(Some(Duration::from_secs(900)));
         state.set_unlocked(dummy_keys(), HashMap::new());
         std::thread::sleep(Duration::from_millis(10));
         state.touch();
+        assert!(state.is_unlocked());
+        std::mem::forget(state);
+    }
+
+    #[test]
+    fn test_no_ttl_never_expires() {
+        let mut state = State::new(None);
+        state.set_unlocked(dummy_keys(), HashMap::new());
+        // Even after some time, should still be unlocked (no TTL)
+        std::thread::sleep(Duration::from_millis(10));
         assert!(state.is_unlocked());
         std::mem::forget(state);
     }

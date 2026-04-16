@@ -306,7 +306,7 @@ mod tests {
     #[tokio::test]
     async fn test_request_identities_returns_empty_when_no_entries() {
         let state = Arc::new(Mutex::new(crate::state::State::new(
-            std::time::Duration::from_secs(900),
+            Some(std::time::Duration::from_secs(900)),
         )));
         {
             let mut state = state.lock().await;

@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_decrypt_cipher_returns_error_when_locked() {
-        let state = State::new(std::time::Duration::from_secs(900));
+        let state = State::new(Some(std::time::Duration::from_secs(900)));
         let result = decrypt_cipher(&state, "2.fake|data|mac", None, None);
         assert!(result.is_err());
         assert!(

@@ -9,7 +9,6 @@ pub mod state;
 pub mod access_log;
 
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::Mutex;
 
 pub use approval::ApprovalRequest;
@@ -94,7 +93,7 @@ pub async fn start_agent<U: UiCallback>(config: config::Config, ui: U) -> anyhow
 
     let client = bw_core::api::Client::new(&api_url, &identity_url, config.proxy.as_deref());
 
-    let mut initial_state = state::State::new(Duration::from_secs(config.lock_timeout));
+    let mut initial_state = state::State::new(config.lock_mode.cache_ttl());
     initial_state.email = Some(email);
 
     let state = Arc::new(Mutex::new(initial_state));

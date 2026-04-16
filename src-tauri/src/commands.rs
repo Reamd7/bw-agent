@@ -233,6 +233,24 @@ pub async fn save_config(config: bw_agent::config::Config) -> Result<(), String>
     std::fs::write(path, json).map_err(|error| error.to_string())
 }
 
+/// Hot-reload lock mode at runtime without restarting the app.
+/// Updates the in-memory State cache_ttl and system event listeners.
+#[tauri::command]
+pub async fn update_lock_mode(
+    lock_mode: bw_agent::config::LockMode,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut agent_state = state.agent_state.lock().await;
+    agent_state.cache_ttl = lock_mode.cache_ttl();
+    log::info!("Lock mode updated to {:?} (cache_ttl={:?})", lock_mode, agent_state.cache_ttl);
+
+    // Also update system event listeners (idle threshold, active mode).
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    crate::system_events::set_lock_mode(&lock_mode);
+
+    Ok(())
+}
+
 fn locked_password(password: String) -> bw_core::locked::Password {
     let mut password_vec = bw_core::locked::Vec::new();
     password_vec.extend(password.bytes());

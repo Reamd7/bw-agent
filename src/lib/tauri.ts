@@ -37,11 +37,19 @@ export interface ApprovalRequest {
   timestamp: number;
 }
 
+export type LockMode =
+  | { type: "timeout"; seconds: number }
+  | { type: "system_idle"; seconds: number }
+  | { type: "on_sleep" }
+  | { type: "on_lock" }
+  | { type: "on_restart" }
+  | { type: "never" };
+
 export interface Config {
   email: string | null;
   base_url: string | null;
   identity_url: string | null;
-  lock_timeout: number;
+  lock_mode: LockMode;
   proxy: string | null;
 }
 
@@ -55,3 +63,4 @@ export const getPendingApprovals = () => invoke<ApprovalRequest[]>("get_pending_
 export const lockVault = () => invoke<void>("lock_vault");
 export const getConfig = () => invoke<Config>("get_config");
 export const saveConfig = (config: Config) => invoke<void>("save_config", { config });
+export const updateLockMode = (lockMode: LockMode) => invoke<void>("update_lock_mode", { lockMode });
