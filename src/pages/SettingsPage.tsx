@@ -1,8 +1,13 @@
 import { createSignal, onMount, Show } from "solid-js";
-import { getConfig, saveConfig, type Config } from "../lib/tauri";
+import { getConfig, saveConfig, lockVault, type Config } from "../lib/tauri";
+import { store } from "../lib/store";
 
 function navigate(path: string) {
   window.location.hash = "#" + path;
+}
+
+function goBack() {
+  navigate(store.locked ? "/" : "/dashboard");
 }
 
 export default function SettingsPage() {
@@ -16,11 +21,13 @@ export default function SettingsPage() {
   const [loading, setLoading] = createSignal(true);
   const [saving, setSaving] = createSignal(false);
   const [toast, setToast] = createSignal<{ message: string; type: "success" | "error" } | null>(null);
+  let originalConfig: Config | null = null;
 
   onMount(async () => {
     try {
       const currentConfig = await getConfig();
       setConfig(currentConfig);
+      originalConfig = { ...currentConfig };
     } catch (e) {
       console.error("Failed to load config:", e);
       setToast({ message: "Failed to load settings", type: "error" });
@@ -35,10 +42,20 @@ export default function SettingsPage() {
     setToast(null);
 
     try {
-      await saveConfig(config());
+      const newConfig = config();
+      await saveConfig(newConfig);
+
+      const emailChanged = originalConfig && originalConfig.email !== newConfig.email;
+      const baseUrlChanged = originalConfig && originalConfig.base_url !== newConfig.base_url;
+      originalConfig = { ...newConfig };
+
+      if (emailChanged || baseUrlChanged) {
+        await lockVault();
+        navigate("/");
+        return;
+      }
+
       setToast({ message: "Settings saved successfully", type: "success" });
-      
-      // Clear toast after 3 seconds
       setTimeout(() => setToast(null), 3000);
     } catch (e) {
       console.error("Failed to save config:", e);
@@ -58,7 +75,7 @@ export default function SettingsPage() {
         <div class="mb-8 flex items-center justify-between">
           <div class="flex items-center">
             <button
-              onClick={() => navigate("/dashboard")}
+              onClick={goBack}
               class="mr-4 rounded-full p-2 text-gray-400 hover:bg-gray-200 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
