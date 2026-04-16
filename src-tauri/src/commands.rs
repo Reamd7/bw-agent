@@ -158,6 +158,14 @@ pub async fn list_keys(state: State<'_, AppState>) -> Result<Vec<SshKeyInfo>, St
             _ => None,
         })
         .map(|(entry, encrypted_public_key)| {
+            let name = bw_agent::auth::decrypt_cipher(
+                &agent_state,
+                &entry.name,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )
+            .unwrap_or_else(|_| entry.name.clone());
+
             let public_key = bw_agent::auth::decrypt_cipher(
                 &agent_state,
                 encrypted_public_key,
@@ -169,7 +177,7 @@ pub async fn list_keys(state: State<'_, AppState>) -> Result<Vec<SshKeyInfo>, St
                 .map_err(|error| error.to_string())?;
 
             Ok(SshKeyInfo {
-                name: entry.name.clone(),
+                name,
                 key_type: key_type_from_public_key(&public_key),
                 fingerprint: parsed_public_key.fingerprint(Default::default()).to_string(),
             })
