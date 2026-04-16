@@ -195,9 +195,26 @@ fn main() {
 fn send_approval_notification(app_handle: &tauri::AppHandle, request: &bw_agent::ApprovalRequest) {
     use tauri_plugin_notification::NotificationExt;
 
+    let chain_display = if request.process_chain.is_empty() {
+        request.client_exe.clone()
+    } else {
+        request
+            .process_chain
+            .iter()
+            .map(|p| {
+                p.exe
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or(&p.exe)
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join(" → ")
+    };
+
     let body = format!(
-        "{} ({}) requests access to key \"{}\"",
-        request.client_exe, request.client_pid, request.key_name,
+        "{} requests access to key \"{}\"",
+        chain_display, request.key_name,
     );
 
     if let Err(error) = app_handle

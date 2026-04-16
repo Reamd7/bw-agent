@@ -1,3 +1,4 @@
+use crate::process::ProcessInfo;
 use rusqlite::Connection;
 use std::sync::Mutex;
 
@@ -10,6 +11,7 @@ pub struct AccessLogEntry {
     pub key_name: String,
     pub client_exe: String,
     pub client_pid: u32,
+    pub process_chain: Vec<ProcessInfo>,
     pub approved: bool,
 }
 
@@ -49,9 +51,16 @@ impl AccessLog {
                 key_name TEXT NOT NULL,
                 client_exe TEXT NOT NULL,
                 client_pid INTEGER NOT NULL,
-                approved INTEGER NOT NULL
+                approved INTEGER NOT NULL,
+                process_chain TEXT NOT NULL DEFAULT '[]'
             )",
         )?;
+
+        // Migration: add column if table already exists without it.
+        let _ = conn.execute_batch(
+            "ALTER TABLE access_log ADD COLUMN process_chain TEXT NOT NULL DEFAULT '[]'",
+        );
+
         Ok(())
     }
 
@@ -63,11 +72,13 @@ impl AccessLog {
         exe: &str,
         pid: u32,
         approved: bool,
+        process_chain: &[ProcessInfo],
     ) -> rusqlite::Result<()> {
         let conn = self.conn.lock().expect("lock poisoned");
+        let chain_json = serde_json::to_string(process_chain).unwrap_or_else(|_| "[]".to_string());
         conn.execute(
-            "INSERT INTO access_log (key_fingerprint, key_name, client_exe, client_pid, approved) VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![fingerprint, key_name, exe, pid, approved as i32],
+            "INSERT INTO access_log (key_fingerprint, key_name, client_exe, client_pid, approved, process_chain) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![fingerprint, key_name, exe, pid, approved as i32, chain_json],
         )?;
         Ok(())
     }
@@ -76,7 +87,7 @@ impl AccessLog {
     pub fn query(&self, limit: u32) -> rusqlite::Result<Vec<AccessLogEntry>> {
         let conn = self.conn.lock().expect("lock poisoned");
         let mut stmt = conn.prepare(
-            "SELECT id, timestamp, key_fingerprint, key_name, client_exe, client_pid, approved FROM access_log ORDER BY id DESC LIMIT ?1",
+            "SELECT id, timestamp, key_fingerprint, key_name, client_exe, client_pid, approved, process_chain FROM access_log ORDER BY id DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map([limit], |row| {
             Ok(AccessLogEntry {
@@ -86,6 +97,10 @@ impl AccessLog {
                 key_name: row.get(3)?,
                 client_exe: row.get(4)?,
                 client_pid: row.get(5)?,
+                process_chain: {
+                    let json_str: String = row.get(7)?;
+                    serde_json::from_str(&json_str).unwrap_or_default()
+                },
                 approved: row.get::<_, i32>(6)? != 0,
             })
         })?;
@@ -99,14 +114,36 @@ mod tests {
 
     #[test]
     fn test_log_and_query() {
+        use crate::process::ProcessInfo;
+
         let log = AccessLog::open_in_memory().unwrap();
-        log.record("SHA256:abc", "my-key", "ssh.exe", 1234, true)
-            .unwrap();
-        log.record("SHA256:def", "other-key", "git.exe", 5678, false)
+        log.record(
+            "SHA256:abc",
+            "my-key",
+            "ssh.exe",
+            1234,
+            true,
+            &[
+                ProcessInfo {
+                    exe: "git.exe".to_string(),
+                    pid: 1200,
+                    cmdline: "git push".to_string(),
+                },
+                ProcessInfo {
+                    exe: "ssh.exe".to_string(),
+                    pid: 1234,
+                    cmdline: "ssh git@github.com".to_string(),
+                },
+            ],
+        )
+        .unwrap();
+        log.record("SHA256:def", "other-key", "git.exe", 5678, false, &[])
             .unwrap();
         let entries = log.query(10).unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].key_fingerprint, "SHA256:def"); // most recent first
         assert!(entries[1].approved);
+        assert_eq!(entries[1].process_chain.len(), 2);
+        assert_eq!(entries[1].process_chain[0].exe, "git.exe");
     }
 }

@@ -3,6 +3,7 @@ pub mod auth;
 pub mod config;
 #[cfg(windows)]
 pub mod pipe;
+pub mod process;
 pub mod ssh_agent;
 pub mod state;
 pub mod access_log;
@@ -12,6 +13,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 pub use approval::ApprovalRequest;
+pub use process::ProcessInfo;
 
 /// Callback trait for UI interactions (password prompt, 2FA, approval).
 /// Tauri implements this; standalone mode uses StubUiCallback.

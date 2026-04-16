@@ -1,3 +1,4 @@
+use crate::process::ProcessInfo;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,6 +12,7 @@ pub struct ApprovalRequest {
     pub key_fingerprint: String,
     pub client_exe: String,
     pub client_pid: u32,
+    pub process_chain: Vec<ProcessInfo>,
     pub timestamp: u64,
 }
 
@@ -39,6 +41,7 @@ impl ApprovalQueue {
         fingerprint: &str,
         client_exe: &str,
         pid: u32,
+        process_chain: Vec<ProcessInfo>,
     ) -> (ApprovalRequest, oneshot::Receiver<bool>) {
         let (tx, rx) = oneshot::channel();
         let request = ApprovalRequest {
@@ -47,6 +50,7 @@ impl ApprovalQueue {
             key_fingerprint: fingerprint.to_string(),
             client_exe: client_exe.to_string(),
             client_pid: pid,
+            process_chain,
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -85,7 +89,7 @@ mod tests {
     async fn test_approval_request_approve() {
         let queue = ApprovalQueue::new();
         let (request, rx) = queue
-            .create_request("ssh-ed25519", "SHA256:abc", "ssh.exe", 1234)
+            .create_request("ssh-ed25519", "SHA256:abc", "ssh.exe", 1234, vec![])
             .await;
         assert_eq!(request.key_fingerprint, "SHA256:abc");
         queue.respond(&request.id, true).await;
@@ -96,7 +100,7 @@ mod tests {
     async fn test_approval_request_deny() {
         let queue = ApprovalQueue::new();
         let (request, rx) = queue
-            .create_request("ssh-ed25519", "SHA256:abc", "ssh.exe", 1234)
+            .create_request("ssh-ed25519", "SHA256:abc", "ssh.exe", 1234, vec![])
             .await;
         queue.respond(&request.id, false).await;
         assert!(!rx.await.unwrap());
@@ -105,7 +109,7 @@ mod tests {
     #[tokio::test]
     async fn test_pending_approvals() {
         let queue = ApprovalQueue::new();
-        let (req, _rx) = queue.create_request("key1", "fp1", "ssh.exe", 100).await;
+        let (req, _rx) = queue.create_request("key1", "fp1", "ssh.exe", 100, vec![]).await;
         assert_eq!(queue.pending().await.len(), 1);
         queue.respond(&req.id, true).await;
         assert_eq!(queue.pending().await.len(), 0);

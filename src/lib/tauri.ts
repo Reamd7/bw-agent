@@ -10,6 +10,12 @@ export type UnlockResult =
   | "Success"
   | { TwoFactorRequired: { providers: number[] } };
 
+export interface ProcessInfo {
+  exe: string;
+  pid: number;
+  cmdline: string;
+}
+
 export interface AccessLogEntry {
   id: number;
   timestamp: string;
@@ -17,6 +23,7 @@ export interface AccessLogEntry {
   key_name: string;
   client_exe: string;
   client_pid: number;
+  process_chain: ProcessInfo[];
   approved: boolean;
 }
 
@@ -26,6 +33,7 @@ export interface ApprovalRequest {
   key_fingerprint: string;
   client_exe: string;
   client_pid: number;
+  process_chain: ProcessInfo[];
   timestamp: number;
 }
 
