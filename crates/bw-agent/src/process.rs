@@ -9,16 +9,10 @@ pub struct ProcessInfo {
     pub cmdline: String,
 }
 
-/// Known shell / terminal process names (lowercase). Walking stops when we hit one of these.
-const SHELL_STOP_LIST: &[&str] = &[
-    "cmd.exe",
-    "powershell.exe",
-    "pwsh.exe",
-    "bash.exe",
-    "bash",
-    "zsh",
-    "fish",
-    "sh",
+/// Hard-stop processes: true root/system processes where walking must stop.
+/// These are never useful as SSH initiators and indicate we've reached the
+/// top of the meaningful process tree.
+const HARD_STOP_LIST: &[&str] = &[
     "explorer.exe",
     "windowsterminal.exe",
     "wt.exe",
@@ -28,6 +22,26 @@ const SHELL_STOP_LIST: &[&str] = &[
     "systemd",
     "init",
     "launchd",
+    "services.exe",
+    "svchost.exe",
+    "wininit.exe",
+    "csrss.exe",
+    "smss.exe",
+];
+
+/// Transparent processes: included in the chain but NOT shown in the final
+/// display. These are common "wrapper" processes that obscure the real
+/// initiator (e.g., `cmd.exe /c "git pull"` spawned by Node.js `exec()`).
+/// The walk continues through them.
+const TRANSPARENT_LIST: &[&str] = &[
+    "cmd.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "bash.exe",
+    "bash",
+    "zsh",
+    "fish",
+    "sh",
 ];
 
 /// Maximum number of levels to walk (prevents infinite loops from PID reuse).
@@ -41,6 +55,7 @@ const MAX_WALK_DEPTH: usize = 10;
 /// If walking fails at any point, returns a chain containing only the direct client.
 pub fn resolve_process_chain(pid: u32) -> Vec<ProcessInfo> {
     if pid == 0 {
+        log::debug!("resolve_process_chain: pid=0, returning unknown");
         return vec![ProcessInfo {
             exe: "unknown".to_string(),
             pid: 0,
@@ -49,37 +64,111 @@ pub fn resolve_process_chain(pid: u32) -> Vec<ProcessInfo> {
     }
 
     let direct = query_process_info(pid);
+    log::debug!(
+        "resolve_process_chain: direct client pid={pid} exe={} cmdline={}",
+        direct.exe,
+        direct.cmdline
+    );
 
     // Walk parent chain.
     let mut chain = vec![direct];
     let mut current_pid = pid;
 
-    for _ in 0..MAX_WALK_DEPTH {
+    for depth in 0..MAX_WALK_DEPTH {
         let parent_pid = get_parent_pid(current_pid);
+        log::debug!(
+            "resolve_process_chain: depth={depth} current_pid={current_pid} -> parent_pid={parent_pid}"
+        );
         if parent_pid == 0 || parent_pid == current_pid {
+            log::debug!("resolve_process_chain: stopping (parent_pid={parent_pid})");
             break;
         }
 
         let parent_info = query_process_info(parent_pid);
+        log::debug!(
+            "resolve_process_chain: parent pid={} exe={} cmdline={}",
+            parent_info.pid,
+            parent_info.exe,
+            parent_info.cmdline
+        );
 
-        // Check stop condition: is parent a known shell/terminal?
         let exe_lower = parent_info
             .exe
             .rsplit(['/', '\\'])
             .next()
             .unwrap_or(&parent_info.exe)
             .to_lowercase();
-        if SHELL_STOP_LIST.contains(&exe_lower.as_str()) {
+
+        // Hard stop: system/root processes — stop walking, don't include.
+        if HARD_STOP_LIST.contains(&exe_lower.as_str()) {
+            log::debug!("resolve_process_chain: hard stop at system process: {exe_lower}");
             break;
+        }
+
+        // Transparent: wrapper shells — include in chain but keep walking.
+        if TRANSPARENT_LIST.contains(&exe_lower.as_str()) {
+            log::debug!(
+                "resolve_process_chain: transparent process, continuing through: {exe_lower}"
+            );
         }
 
         chain.push(parent_info);
         current_pid = parent_pid;
     }
 
+    log::debug!(
+        "resolve_process_chain: raw chain ({} entries): {}",
+        chain.len(),
+        chain
+            .iter()
+            .map(|p| format!(
+                "{}({})",
+                p.exe.rsplit(['/', '\\']).next().unwrap_or(&p.exe),
+                p.pid
+            ))
+            .collect::<Vec<_>>()
+            .join(" -> ")
+    );
+
     // Reverse: topmost initiator first, direct client last.
     chain.reverse();
-    chain
+
+    // Filter out transparent wrapper processes from the display chain,
+    // but keep at least the direct client (last element).
+    let filtered: Vec<ProcessInfo> = chain
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| {
+            let is_last = *i == chain.len() - 1;
+            if is_last {
+                return true; // always keep the direct client (ssh.exe)
+            }
+            let name = p
+                .exe
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or(&p.exe)
+                .to_lowercase();
+            !TRANSPARENT_LIST.contains(&name.as_str())
+        })
+        .map(|(_, p)| p.clone())
+        .collect();
+
+    log::debug!(
+        "resolve_process_chain: filtered chain ({} entries): {}",
+        filtered.len(),
+        filtered
+            .iter()
+            .map(|p| format!(
+                "{}({})",
+                p.exe.rsplit(['/', '\\']).next().unwrap_or(&p.exe),
+                p.pid
+            ))
+            .collect::<Vec<_>>()
+            .join(" -> ")
+    );
+
+    filtered
 }
 
 /// Query process info (exe path + command line) for a given PID.
@@ -425,10 +514,16 @@ mod tests {
     }
 
     #[test]
-    fn test_shell_stop_list_contains_common_shells() {
-        assert!(SHELL_STOP_LIST.contains(&"cmd.exe"));
-        assert!(SHELL_STOP_LIST.contains(&"powershell.exe"));
-        assert!(SHELL_STOP_LIST.contains(&"bash"));
-        assert!(SHELL_STOP_LIST.contains(&"explorer.exe"));
+    fn test_hard_stop_list_contains_system_processes() {
+        assert!(HARD_STOP_LIST.contains(&"explorer.exe"));
+        assert!(HARD_STOP_LIST.contains(&"svchost.exe"));
+        assert!(HARD_STOP_LIST.contains(&"services.exe"));
+    }
+
+    #[test]
+    fn test_transparent_list_contains_shell_wrappers() {
+        assert!(TRANSPARENT_LIST.contains(&"cmd.exe"));
+        assert!(TRANSPARENT_LIST.contains(&"powershell.exe"));
+        assert!(TRANSPARENT_LIST.contains(&"bash"));
     }
 }
