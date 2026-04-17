@@ -43,7 +43,7 @@ impl LockMode {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct Config {
     pub email: Option<String>,
     pub base_url: Option<String>,
@@ -59,19 +59,6 @@ pub struct Config {
     lock_timeout: Option<u64>,
 
     pub proxy: Option<String>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            email: None,
-            base_url: None,
-            identity_url: None,
-            lock_mode: LockMode::default(),
-            lock_timeout: None,
-            proxy: None,
-        }
-    }
 }
 
 impl Config {

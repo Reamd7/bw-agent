@@ -23,6 +23,16 @@ pub struct PendingTwoFactor {
     pub memory: Option<u32>,
     pub parallelism: Option<u32>,
 }
+/// One-shot channel slot for relaying a master-password prompt response to the
+/// core agent. Wrapped in `Arc<Mutex<Option<_>>>` so the UI callback can atomically
+/// install/consume the sender from any thread.
+pub type PasswordPromptSlot = Arc<Mutex<Option<tokio::sync::oneshot::Sender<Option<String>>>>>;
+
+/// One-shot channel slot for relaying a 2FA prompt response (`(provider, token)`)
+/// back to the core agent. Same `Arc<Mutex<Option<_>>>` pattern as
+/// [`PasswordPromptSlot`].
+pub type TwoFactorPromptSlot =
+    Arc<Mutex<Option<tokio::sync::oneshot::Sender<Option<(u8, String)>>>>>;
 
 pub struct AppState {
     pub app_handle: tauri::AppHandle,
@@ -30,16 +40,16 @@ pub struct AppState {
     pub client: bw_core::api::Client,
     pub approval_queue: Arc<bw_agent::approval::ApprovalQueue>,
     pub access_log: Arc<bw_agent::access_log::AccessLog>,
-    pub password_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<Option<String>>>>>,
-    pub two_factor_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<Option<(u8, String)>>>>>,
+    pub password_tx: PasswordPromptSlot,
+    pub two_factor_tx: TwoFactorPromptSlot,
     pub pending_two_factor: Arc<Mutex<Option<PendingTwoFactor>>>,
 }
 
 #[derive(Clone)]
 pub struct TauriUiCallback {
     app_handle: tauri::AppHandle,
-    password_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<Option<String>>>>>,
-    two_factor_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<Option<(u8, String)>>>>>,
+    password_tx: PasswordPromptSlot,
+    two_factor_tx: TwoFactorPromptSlot,
 }
 
 impl bw_agent::UiCallback for TauriUiCallback {

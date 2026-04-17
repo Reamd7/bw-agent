@@ -54,7 +54,7 @@ impl State {
         match (&self.keys, &self.cached_at) {
             (Some(_), Some(cached_at)) => {
                 // If cache_ttl is None, keys never expire by time (event-based / never mode).
-                self.cache_ttl.map_or(true, |ttl| cached_at.elapsed() < ttl)
+                self.cache_ttl.is_none_or(|ttl| cached_at.elapsed() < ttl)
             }
             _ => false,
         }

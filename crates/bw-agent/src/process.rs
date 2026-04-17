@@ -464,11 +464,13 @@ unsafe fn get_nqip(ntdll: *mut core::ffi::c_void) -> Option<NtQueryInformationPr
             name: *const u8,
         ) -> *mut core::ffi::c_void;
     }
-    let func = unsafe { GetProcAddress(ntdll, b"NtQueryInformationProcess\0".as_ptr()) };
+    let func = unsafe { GetProcAddress(ntdll, c"NtQueryInformationProcess".as_ptr().cast()) };
     if func.is_null() {
         None
     } else {
-        Some(unsafe { std::mem::transmute(func) })
+        Some(unsafe {
+            std::mem::transmute::<*mut core::ffi::c_void, NtQueryInformationProcessFn>(func)
+        })
     }
 }
 
