@@ -43,19 +43,28 @@ jobs:
         run: pnpm run check
 
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     needs: check
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    strategy:
+      fail-fast: false
+      matrix:
+        # Default per 2026-04-17-release-hardening-task1 plan:
+        #   first-pass CI matrix covers Windows + macOS only;
+        #   Linux is not a declared release target for now.
+        os: [windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
       - name: Prepare build environment
         uses: ./.github/actions/prepare-build
+        with:
+          install-tauri-linux-deps: 'false'
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-test
+          shared-key: ci-test-${{ matrix.os }}
 
       - name: pnpm run test (cargo test --workspace)
         run: pnpm run test
@@ -70,6 +79,9 @@ jobs:
 
       - name: Prepare build environment
         uses: ./.github/actions/prepare-build
+        with:
+          # Frontend-only job — skip Rust + Tauri Linux deps to keep it fast.
+          install-tauri-linux-deps: 'false'
 
       - name: pnpm run build
         run: pnpm run build
