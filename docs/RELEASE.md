@@ -168,3 +168,32 @@ intentionally incomplete with respect to:
 
 Those are tracked as follow-ups and should be promoted from this doc
 incrementally as each piece lands.
+
+## 9. Handoff status (task1 complete)
+
+Shipped by `.sisyphus/plans/2026-04-17-release-hardening-task1.md`:
+
+- `package.json` verification script names unified: `build`, `test`,
+  `test:unit` (placeholder for task2), `check`.
+- `.github/actions/prepare-pnpm` + `.github/actions/prepare-build` composite
+  actions (inspired by EasyTier's CI layout).
+- `.github/workflows/ci.yml` with `check` / `test (matrix: windows +
+  macos)` / `build` / `ci-result` aggregator.
+- `.github/workflows/release.yml` tag-triggered, produces unsigned
+  Windows + macOS Tauri bundles as workflow artifacts.
+- Versions aligned to `0.1.0` across `package.json`,
+  `src-tauri/tauri.conf.json` and all three Cargo crates.
+- `docs/RELEASE.md` (this file) as the first release guide.
+- `tauri.conf.json` bundle metadata (publisher, copyright,
+  short/long description) populated.
+
+Next up (continuing the phase plan):
+
+- `.sisyphus/plans/2026-04-17-testing-hardening-task2.md` — hook real
+  frontend/E2E/Tauri tests onto the `pnpm run test:unit` and
+  `pnpm run test:e2e` entry points this task established.
+- After task2: docs (`task3`), security hardening (`task4`),
+  UX polish (`task5`).
+
+Signing/notarization, tagged GitHub Releases and auto-updates are all
+tracked here (§6, §7) and intentionally deferred past this phase.
