@@ -2,7 +2,7 @@ use crate::process::ProcessInfo;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{Mutex, oneshot};
 
 /// Request for user approval of an SSH signing operation.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -109,7 +109,9 @@ mod tests {
     #[tokio::test]
     async fn test_pending_approvals() {
         let queue = ApprovalQueue::new();
-        let (req, _rx) = queue.create_request("key1", "fp1", "ssh.exe", 100, vec![]).await;
+        let (req, _rx) = queue
+            .create_request("key1", "fp1", "ssh.exe", 100, vec![])
+            .await;
         assert_eq!(queue.pending().await.len(), 1);
         queue.respond(&req.id, true).await;
         assert_eq!(queue.pending().await.len(), 0);

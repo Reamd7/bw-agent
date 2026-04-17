@@ -912,17 +912,17 @@ pub async fn full_login(
     let device_id = generate_device_id();
     let (kdf, iterations, memory, parallelism) = client.prelogin(email).await?;
 
-    let identity = crate::identity::Identity::new(
-        email,
-        password,
-        kdf,
-        iterations,
-        memory,
-        parallelism,
-    )?;
+    let identity =
+        crate::identity::Identity::new(email, password, kdf, iterations, memory, parallelism)?;
 
     let (access_token, refresh_token, protected_key) = client
-        .login(email, &device_id, &identity.master_password_hash, None, None)
+        .login(
+            email,
+            &device_id,
+            &identity.master_password_hash,
+            None,
+            None,
+        )
         .await?;
 
     Ok(LoginSession {
@@ -945,11 +945,9 @@ pub struct SyncData {
     pub entries: Vec<crate::db::Entry>,
 }
 
-pub async fn sync_vault(
-    client: &Client,
-    access_token: &str,
-) -> crate::error::Result<SyncData> {
-    let (protected_key, protected_private_key, org_keys, entries) = client.sync(access_token).await?;
+pub async fn sync_vault(client: &Client, access_token: &str) -> crate::error::Result<SyncData> {
+    let (protected_key, protected_private_key, org_keys, entries) =
+        client.sync(access_token).await?;
     Ok(SyncData {
         protected_key,
         protected_private_key,
@@ -972,14 +970,8 @@ pub fn unlock_vault(
     crate::locked::Keys,
     std::collections::HashMap<String, crate::locked::Keys>,
 )> {
-    let identity = crate::identity::Identity::new(
-        email,
-        password,
-        kdf,
-        iterations,
-        memory,
-        parallelism,
-    )?;
+    let identity =
+        crate::identity::Identity::new(email, password, kdf, iterations, memory, parallelism)?;
 
     let protected_key = crate::cipherstring::CipherString::new(protected_key)?;
     let key = match protected_key.decrypt_locked_symmetric(&identity.keys) {
@@ -999,9 +991,8 @@ pub fn unlock_vault(
     let mut org_keys_map = std::collections::HashMap::new();
     for (org_id, protected_org_key) in protected_org_keys {
         let protected_org_key = crate::cipherstring::CipherString::new(protected_org_key)?;
-        let org_key = crate::locked::Keys::new(
-            protected_org_key.decrypt_locked_asymmetric(&private_key)?,
-        );
+        let org_key =
+            crate::locked::Keys::new(protected_org_key.decrypt_locked_asymmetric(&private_key)?);
         org_keys_map.insert(org_id.clone(), org_key);
     }
 

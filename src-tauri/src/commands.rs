@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use tauri::State;
 
-use crate::{events, AppState};
+use crate::{AppState, events};
 
 #[derive(serde::Serialize)]
 pub struct SshKeyInfo {
@@ -126,7 +126,10 @@ pub async fn unlock(password: String, state: State<'_, AppState>) -> Result<Unlo
             }
 
             return Ok(UnlockResult::TwoFactorRequired {
-                providers: providers.into_iter().map(|provider| provider as u8).collect(),
+                providers: providers
+                    .into_iter()
+                    .map(|provider| provider as u8)
+                    .collect(),
             });
         }
         Err(error) => return Err(error.to_string()),
@@ -339,7 +342,9 @@ pub async fn list_keys(state: State<'_, AppState>) -> Result<Vec<SshKeyInfo>, St
             Ok(SshKeyInfo {
                 name,
                 key_type: key_type_from_public_key(&public_key),
-                fingerprint: parsed_public_key.fingerprint(Default::default()).to_string(),
+                fingerprint: parsed_public_key
+                    .fingerprint(Default::default())
+                    .to_string(),
             })
         })
         .collect()
@@ -350,7 +355,10 @@ pub async fn get_access_logs(
     limit: u32,
     state: State<'_, AppState>,
 ) -> Result<Vec<bw_agent::access_log::AccessLogEntry>, String> {
-    state.access_log.query(limit).map_err(|error| error.to_string())
+    state
+        .access_log
+        .query(limit)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -403,7 +411,11 @@ pub async fn update_lock_mode(
 ) -> Result<(), String> {
     let mut agent_state = state.agent_state.lock().await;
     agent_state.cache_ttl = lock_mode.cache_ttl();
-    log::info!("Lock mode updated to {:?} (cache_ttl={:?})", lock_mode, agent_state.cache_ttl);
+    log::info!(
+        "Lock mode updated to {:?} (cache_ttl={:?})",
+        lock_mode,
+        agent_state.cache_ttl
+    );
 
     // Also update system event listeners (idle threshold, active mode).
     #[cfg(any(target_os = "windows", target_os = "macos"))]
