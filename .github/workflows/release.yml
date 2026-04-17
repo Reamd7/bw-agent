@@ -1,0 +1,119 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag (e.g. v0.1.0) to build artifacts for'
+        type: string
+        required: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact-name: bw-agent-windows-x86_64
+          - os: macos-latest
+            artifact-name: bw-agent-macos
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Prepare build environment
+        uses: ./.github/actions/prepare-build
+        with:
+          install-tauri-linux-deps: 'false'
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.os }}
+
+      # -----------------------------------------------------------------------
+      # Signing / notarization (placeholders — see docs/RELEASE.md §6)
+      #
+      # Windows code signing: expects secrets WINDOWS_SIGN_CERTIFICATE (base64
+      # PFX) and WINDOWS_SIGN_PASSWORD. Not wired yet.
+      #
+      # macOS codesign + notarization: expects secrets APPLE_TEAM_ID,
+      # APPLE_CERTIFICATE (base64 p12), APPLE_CERTIFICATE_PASSWORD, APPLE_ID
+      # and APPLE_APP_SPECIFIC_PASSWORD. Not wired yet.
+      #
+      # Promoting this workflow to produce signed bundles is an explicit
+      # follow-up task, not part of task1.
+      # -----------------------------------------------------------------------
+
+      - name: Build Tauri bundles
+        uses: tauri-apps/tauri-action@v0
+        with:
+          args: --verbose
+
+      - name: Collect Tauri artifacts
+        run: |
+          mkdir -p ./release_artifacts
+
+          # Windows: .msi / .exe
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            shopt -s nullglob
+            for f in \
+              ./src-tauri/target/release/bundle/msi/*.msi \
+              ./src-tauri/target/release/bundle/nsis/*.exe
+            do
+              cp "$f" ./release_artifacts/
+            done
+          fi
+
+          # macOS: .dmg / .app.tar.gz
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            shopt -s nullglob
+            for f in \
+              ./src-tauri/target/release/bundle/dmg/*.dmg \
+              ./src-tauri/target/release/bundle/macos/*.app.tar.gz
+            do
+              cp "$f" ./release_artifacts/
+            done
+          fi
+
+          ls -la ./release_artifacts
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ./release_artifacts/*
+          if-no-files-found: error
+
+  release-result:
+    name: Release result
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: always()
+    steps:
+      - name: Mark release as failed if any build failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+      - name: Release artifacts produced
+        run: |
+          echo "Release builds succeeded. Artifacts are available on the workflow"
+          echo "run page. See docs/RELEASE.md for how to promote them into a"
+          echo "signed GitHub Release."
