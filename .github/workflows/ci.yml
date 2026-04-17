@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Deny unwrap in release, but don't fight existing code here.
+  RUST_BACKTRACE: 1
+
+defaults:
+  run:
+    # Pinning to bash keeps script syntax identical on Windows / macOS / Linux.
+    shell: bash
+
+jobs:
+  check:
+    name: Lint & format
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare build environment
+        uses: ./.github/actions/prepare-build
+        with:
+          rust-components: rustfmt,clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-check
+          cache-targets: 'false'
+
+      - name: pnpm run check (cargo fmt + cargo clippy)
+        run: pnpm run check
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: check
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare build environment
+        uses: ./.github/actions/prepare-build
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-test
+
+      - name: pnpm run test (cargo test --workspace)
+        run: pnpm run test
+
+  build:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    needs: check
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare build environment
+        uses: ./.github/actions/prepare-build
+
+      - name: pnpm run build
+        run: pnpm run build
+
+  ci-result:
+    name: CI result
+    runs-on: ubuntu-latest
+    needs: [check, test, build]
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    steps:
+      - name: Mark CI as failed if any required job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+      - name: CI passed
+        run: echo "All required CI jobs succeeded."
