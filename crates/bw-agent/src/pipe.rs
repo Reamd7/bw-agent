@@ -71,10 +71,7 @@ unsafe extern "system" {
         return_length: *mut u32,
     ) -> i32;
 
-    fn ConvertSidToStringSidW(
-        sid: *const u8,
-        string_sid: *mut *mut u16,
-    ) -> i32;
+    fn ConvertSidToStringSidW(sid: *const u8, string_sid: *mut *mut u16) -> i32;
 
     fn CloseHandle(handle: isize) -> i32;
 }

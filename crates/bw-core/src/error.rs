@@ -62,7 +62,9 @@ pub enum Error {
     #[error("failed to parse RSA PKCS8")]
     RsaPkcs8 { source: rsa::pkcs8::Error },
 
-    #[error("cipherstring type {ty} too old\n\nPlease rotate your account encryption key (https://bitwarden.com/help/article/account-encryption-key/) and try again.")]
+    #[error(
+        "cipherstring type {ty} too old\n\nPlease rotate your account encryption key (https://bitwarden.com/help/article/account-encryption-key/) and try again."
+    )]
     TooOldCipherStringType { ty: String },
 
     #[error("invalid two factor provider type: {ty}")]

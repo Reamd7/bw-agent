@@ -1,3 +1,4 @@
+pub mod access_log;
 pub mod approval;
 pub mod auth;
 pub mod config;
@@ -6,7 +7,6 @@ pub mod pipe;
 pub mod process;
 pub mod ssh_agent;
 pub mod state;
-pub mod access_log;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -139,13 +139,8 @@ pub async fn start_agent_with_shared_state<U: UiCallback>(
         log::info!("Proxy: {proxy}");
     }
 
-    let handler = ssh_agent::SshAgentHandler::new(
-        state,
-        client,
-        Arc::new(ui),
-        approval_queue,
-        access_log,
-    );
+    let handler =
+        ssh_agent::SshAgentHandler::new(state, client, Arc::new(ui), approval_queue, access_log);
 
     log::info!("Starting bw-agent SSH agent...");
 

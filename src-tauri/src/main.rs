@@ -95,7 +95,8 @@ impl bw_agent::UiCallback for TauriUiCallback {
     }
 
     async fn request_approval(&self, request: &bw_agent::ApprovalRequest) -> bool {
-        if let Err(emit_error) = events::emit_approval_requested(&self.app_handle, request.clone()) {
+        if let Err(emit_error) = events::emit_approval_requested(&self.app_handle, request.clone())
+        {
             log::error!("failed to emit approval request event: {emit_error}");
             return false;
         }
@@ -189,11 +190,9 @@ fn main() {
 
             // Initialize system event listeners (idle, sleep, lock, shutdown).
             #[cfg(any(target_os = "windows", target_os = "macos"))]
-            if let Err(error) = system_events::init(
-                &app_handle,
-                &config.lock_mode,
-                Arc::clone(&agent_state),
-            ) {
+            if let Err(error) =
+                system_events::init(&app_handle, &config.lock_mode, Arc::clone(&agent_state))
+            {
                 log::error!("Failed to initialize system event listeners: {error}");
             }
 
@@ -364,10 +363,13 @@ fn start_background_tasks(
                         state.entries = sync_data.entries;
                         state.protected_org_keys = sync_data.org_keys;
                         log::debug!("Periodic sync: updated {} entries", state.entries.len());
-                        let _ = events::emit_vault_synced(&app_handle, events::VaultSyncedPayload {
-                            success: true,
-                            error: None,
-                        });
+                        let _ = events::emit_vault_synced(
+                            &app_handle,
+                            events::VaultSyncedPayload {
+                                success: true,
+                                error: None,
+                            },
+                        );
                     }
                 }
                 Err(error) => {
@@ -383,10 +385,13 @@ fn start_background_tasks(
                         let _ = events::emit_lock_state_changed(&app_handle, true);
                     }
 
-                    let _ = events::emit_vault_synced(&app_handle, events::VaultSyncedPayload {
-                        success: false,
-                        error: Some(error_msg),
-                    });
+                    let _ = events::emit_vault_synced(
+                        &app_handle,
+                        events::VaultSyncedPayload {
+                            success: false,
+                            error: Some(error_msg),
+                        },
+                    );
                 }
             }
         }
