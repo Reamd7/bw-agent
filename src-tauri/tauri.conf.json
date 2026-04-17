@@ -28,6 +28,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "bw-agent contributors",
+    "copyright": "\u00a9 2026 bw-agent contributors",
+    "shortDescription": "Bitwarden SSH agent for Windows and macOS",
+    "longDescription": "Desktop SSH agent that unlocks SSH keys stored in your Bitwarden vault, shows per-request approval prompts with full client process chain, and keeps an auditable access log.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
