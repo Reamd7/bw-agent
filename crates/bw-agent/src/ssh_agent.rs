@@ -17,6 +17,9 @@ pub struct SshAgentHandler<U: crate::UiCallback> {
     access_log: Arc<AccessLog>,
     /// PID of the connected client. Set per-session in `new_session`.
     client_pid: u32,
+    /// Entry IDs allowed for the current session (set by request_identities).
+    /// None means routing hasn't been executed yet.
+    allowed_entry_ids: Option<Vec<String>>,
 }
 
 impl<U: crate::UiCallback> Clone for SshAgentHandler<U> {
@@ -28,6 +31,7 @@ impl<U: crate::UiCallback> Clone for SshAgentHandler<U> {
             approval_queue: Arc::clone(&self.approval_queue),
             access_log: Arc::clone(&self.access_log),
             client_pid: self.client_pid,
+            allowed_entry_ids: self.allowed_entry_ids.clone(),
         }
     }
 }
@@ -47,6 +51,7 @@ impl<U: crate::UiCallback> SshAgentHandler<U> {
             approval_queue,
             access_log,
             client_pid: 0,
+            allowed_entry_ids: None,
         }
     }
 
@@ -54,6 +59,7 @@ impl<U: crate::UiCallback> SshAgentHandler<U> {
     pub fn with_client_pid(&self, pid: u32) -> Self {
         let mut handler = self.clone();
         handler.client_pid = pid;
+        handler.allowed_entry_ids = None;
         handler
     }
 
@@ -72,6 +78,47 @@ fn agent_error(error: impl std::fmt::Display) -> ssh_agent_lib::error::AgentErro
     ssh_agent_lib::error::AgentError::other(std::io::Error::other(error.to_string()))
 }
 
+/// Find the entry ID and decrypted name matching the given public key bytes.
+///
+/// Returns `None` if no entry matches.
+fn find_entry_for_pubkey(
+    state: &State,
+    requested_bytes: &[u8],
+) -> Option<(String, String)> {
+    for entry in &state.entries {
+        if let bw_core::db::EntryData::SshKey {
+            public_key: Some(encrypted_pubkey),
+            ..
+        } = &entry.data
+        {
+            if let Ok(pubkey_plain) = auth::decrypt_cipher(
+                state,
+                encrypted_pubkey,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            ) {
+                if let Ok(pubkey) =
+                    ssh_agent_lib::ssh_key::PublicKey::from_openssh(&pubkey_plain)
+                {
+                    if let Ok(bytes) = pubkey.to_bytes() {
+                        if bytes == requested_bytes {
+                            let decrypted_name = auth::decrypt_cipher(
+                                state,
+                                &entry.name,
+                                entry.key.as_deref(),
+                                entry.org_id.as_deref(),
+                            )
+                            .unwrap_or_else(|_| entry.name.clone());
+                            return Some((entry.id.clone(), decrypted_name));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 #[ssh_agent_lib::async_trait]
 impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> {
     async fn request_identities(
@@ -81,10 +128,28 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
             .await
             .map_err(agent_error)?;
 
+        // Route entries based on git context (no lock needed for process/fs I/O).
+        let process_chain = crate::process::resolve_process_chain(self.client_pid);
+        let remote_url = crate::git_context::extract_remote_url(&process_chain);
+        log::debug!("request_identities: remote_url={:?}", remote_url);
+
         let state = self.state.lock().await;
+
+        let routed_entries =
+            crate::routing::route_entries(&state.entries, remote_url.as_deref());
+
+        // Cache allowed entry IDs for sign() enforcement.
+        self.allowed_entry_ids = Some(routed_entries.iter().map(|e| e.id.clone()).collect());
+
+        log::info!(
+            "request_identities: routing returned {} entries (from {} total)",
+            routed_entries.len(),
+            state.entries.len()
+        );
+
         let mut identities = Vec::new();
 
-        for entry in &state.entries {
+        for entry in &routed_entries {
             if let bw_core::db::EntryData::SshKey {
                 public_key: Some(encrypted_pubkey),
                 ..
@@ -123,47 +188,24 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
         let requested_bytes = requested_pubkey.to_bytes().map_err(agent_error)?;
         let requested_fingerprint = requested_pubkey.fingerprint(Default::default());
 
-        // Find the matching entry name for the approval request.
-        let (key_name, fingerprint_str) = {
+        // Look up the entry for this pubkey (used for enforcement + approval label).
+        let (entry_id, key_name) = {
             let state = self.state.lock().await;
-            let mut found = None;
-            for entry in &state.entries {
-                if let bw_core::db::EntryData::SshKey {
-                    public_key: Some(encrypted_pubkey),
-                    ..
-                } = &entry.data
-                {
-                    if let Ok(pubkey_plain) = auth::decrypt_cipher(
-                        &state,
-                        encrypted_pubkey,
-                        entry.key.as_deref(),
-                        entry.org_id.as_deref(),
-                    ) {
-                        if let Ok(pubkey) =
-                            ssh_agent_lib::ssh_key::PublicKey::from_openssh(&pubkey_plain)
-                        {
-                            if let Ok(bytes) = pubkey.to_bytes() {
-                                if bytes == requested_bytes {
-                                    let decrypted_name = auth::decrypt_cipher(
-                                        &state,
-                                        &entry.name,
-                                        entry.key.as_deref(),
-                                        entry.org_id.as_deref(),
-                                    )
-                                    .unwrap_or_else(|_| entry.name.clone());
-                                    found = Some(decrypted_name);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            (
-                found.unwrap_or_else(|| "unknown".to_string()),
-                requested_fingerprint.to_string(),
-            )
+            find_entry_for_pubkey(&state, &requested_bytes)
+                .unwrap_or(("unknown".to_string(), "unknown".to_string()))
         };
+
+        // Per-session routing enforcement.
+        if let Some(allowed_ids) = &self.allowed_entry_ids {
+            if entry_id != "unknown" && !allowed_ids.contains(&entry_id) {
+                log::warn!("sign() rejected: entry {} not in session allowed set", entry_id);
+                return Err(ssh_agent_lib::error::AgentError::Other(
+                    "Sign request rejected: key not authorized for this session".into(),
+                ));
+            }
+        }
+
+        let fingerprint_str = requested_fingerprint.to_string();
 
         // Resolve full process chain from client PID.
         let process_chain = crate::process::resolve_process_chain(self.client_pid);
