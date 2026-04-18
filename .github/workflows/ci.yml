@@ -50,10 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Default per 2026-04-17-release-hardening-task1 plan:
-        #   first-pass CI matrix covers Windows + macOS only;
-        #   Linux is not a declared release target for now.
-        os: [windows-latest, macos-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
 
