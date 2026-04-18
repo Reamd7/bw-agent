@@ -169,27 +169,12 @@ jobs:
           path: release_assets
           merge-multiple: false
 
-      - name: Organize and zip release assets
-        env:
-          VERSION: ${{ steps.version.outputs.tag }}
+      - name: Flatten release assets
         run: |
-          mkdir -p zipped_assets
-
-          cd release_assets
-          ls -lR ./
-
-          # Each subdirectory is named after the artifact (e.g. bw-agent-linux-x86_64).
-          # Zip each one into <artifact-name>-<version>.zip for easy download.
-          for dir in */; do
-            name="${dir%/}"
-            # Remove trailing slash
-            cd "$dir"
-            zip -r "../../zipped_assets/${name}-${VERSION}.zip" .
-            cd ..
-          done
-
-          echo "--- Zipped assets ---"
-          ls -la ../zipped_assets/
+          mkdir -p flat_assets
+          find release_assets -type f -exec mv {} flat_assets/ \;
+          echo "--- Release assets ---"
+          ls -la flat_assets/
 
       - name: Create draft GitHub Release
         uses: softprops/action-gh-release@v2
@@ -198,5 +183,5 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           draft: true
           generate_release_notes: true
-          files: ./zipped_assets/*
+          files: ./flat_assets/*
           token: ${{ secrets.GITHUB_TOKEN }}
