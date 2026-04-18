@@ -10,6 +10,20 @@ use std::sync::{Arc, Mutex};
 
 use tauri::{Manager, WindowEvent};
 
+/// Holds intermediate login state between the first password attempt
+/// and the 2FA retry. Created when `unlock` gets `TwoFactorRequired`,
+/// consumed when `unlock_with_two_factor` succeeds.
+pub struct PendingTwoFactor {
+    pub device_id: String,
+    pub email: String,
+    pub password: bw_core::locked::Password,
+    pub identity: bw_core::identity::Identity,
+    pub kdf: bw_core::api::KdfType,
+    pub iterations: u32,
+    pub memory: Option<u32>,
+    pub parallelism: Option<u32>,
+}
+
 pub struct AppState {
     pub app_handle: tauri::AppHandle,
     pub agent_state: Arc<tokio::sync::Mutex<bw_agent::state::State>>,
@@ -18,6 +32,7 @@ pub struct AppState {
     pub access_log: Arc<bw_agent::access_log::AccessLog>,
     pub password_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<Option<String>>>>>,
     pub two_factor_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<Option<(u8, String)>>>>>,
+    pub pending_two_factor: Arc<Mutex<Option<PendingTwoFactor>>>,
 }
 
 #[derive(Clone)]
@@ -120,6 +135,8 @@ fn main() {
             let access_log = Arc::new(open_access_log().map_err(to_tauri_error)?);
             let password_tx = Arc::new(Mutex::new(None));
             let two_factor_tx = Arc::new(Mutex::new(None));
+            let pending_two_factor = Arc::new(Mutex::new(None));
+            let pending_two_factor_for_bg = Arc::clone(&pending_two_factor);
 
             let mut initial_state = bw_agent::state::State::new(config.lock_mode.cache_ttl());
             initial_state.email = config.email.clone();
@@ -139,6 +156,7 @@ fn main() {
                 access_log: Arc::clone(&access_log),
                 password_tx,
                 two_factor_tx,
+                pending_two_factor,
             });
 
             let agent_config = config.clone();
@@ -166,6 +184,7 @@ fn main() {
                 app_handle.clone(),
                 Arc::clone(&agent_state),
                 client.clone(),
+                pending_two_factor_for_bg,
             );
 
             // Initialize system event listeners (idle, sleep, lock, shutdown).
@@ -198,6 +217,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::unlock,
+            commands::unlock_with_two_factor,
             commands::submit_password,
             commands::submit_two_factor,
             commands::list_keys,
@@ -292,6 +312,7 @@ fn start_background_tasks(
     app_handle: tauri::AppHandle,
     agent_state: Arc<tokio::sync::Mutex<bw_agent::state::State>>,
     client: bw_core::api::Client,
+    pending_two_factor: Arc<Mutex<Option<PendingTwoFactor>>>,
 ) {
     tauri::async_runtime::spawn(async move {
         let mut tick_count: u64 = 0;
@@ -311,6 +332,9 @@ fn start_background_tasks(
                     let mut state = agent_state.lock().await;
                     state.clear();
                     drop(state);
+                    if let Ok(mut pending) = pending_two_factor.lock() {
+                        pending.take();
+                    }
                     log::info!("Vault TTL expired — locking and notifying frontend");
                     let _ = events::emit_lock_state_changed(&app_handle, true);
                     continue;

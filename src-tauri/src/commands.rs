@@ -17,6 +17,43 @@ pub enum UnlockResult {
     TwoFactorRequired { providers: Vec<u8> },
 }
 
+/// Spawn background sync + vault unlock after successful login.
+/// Shared by `unlock` and `unlock_with_two_factor` to avoid duplication.
+fn spawn_sync_and_unlock(
+    app_handle: tauri::AppHandle,
+    client: bw_core::api::Client,
+    agent_state: std::sync::Arc<tokio::sync::Mutex<bw_agent::state::State>>,
+    email: String,
+    password: bw_core::locked::Password,
+    session: bw_core::api::LoginSession,
+) {
+    tauri::async_runtime::spawn(async move {
+        let result = sync_and_unlock(client, agent_state, email, password, session).await;
+        match result {
+            Ok(()) => {
+                let _ = crate::events::emit_lock_state_changed(&app_handle, false);
+                let _ = crate::events::emit_vault_synced(
+                    &app_handle,
+                    crate::events::VaultSyncedPayload {
+                        success: true,
+                        error: None,
+                    },
+                );
+            }
+            Err(error) => {
+                log::error!("Background sync/unlock failed: {error}");
+                let _ = crate::events::emit_vault_synced(
+                    &app_handle,
+                    crate::events::VaultSyncedPayload {
+                        success: false,
+                        error: Some(error),
+                    },
+                );
+            }
+        }
+    });
+}
+
 #[tauri::command]
 pub async fn unlock(password: String, state: State<'_, AppState>) -> Result<UnlockResult, String> {
     {
@@ -35,11 +72,59 @@ pub async fn unlock(password: String, state: State<'_, AppState>) -> Result<Unlo
         .ok_or_else(|| "Email not configured".to_string())?;
 
     let password = locked_password(password);
+    let device_id = bw_core::api::generate_device_id();
+    let (kdf, iterations, memory, parallelism) = state
+        .client
+        .prelogin(&email)
+        .await
+        .map_err(|error| error.to_string())?;
+    let identity = bw_core::identity::Identity::new(
+        &email,
+        &password,
+        kdf,
+        iterations,
+        memory,
+        parallelism,
+    )
+    .map_err(|error| error.to_string())?;
 
-    // Step 1: full_login only — return immediately on success.
-    let session = match bw_core::api::full_login(&state.client, &email, &password).await {
-        Ok(session) => session,
+    let login_result = state
+        .client
+        .login(&email, &device_id, &identity.master_password_hash, None, None)
+        .await;
+
+    let session = match login_result {
+        Ok((access_token, refresh_token, protected_key)) => bw_core::api::LoginSession {
+            access_token,
+            refresh_token,
+            kdf,
+            iterations,
+            memory,
+            parallelism,
+            protected_key,
+            email: email.clone(),
+            identity,
+        },
         Err(bw_core::error::Error::TwoFactorRequired { providers, .. }) => {
+            let pending_state = crate::PendingTwoFactor {
+                device_id,
+                email,
+                password,
+                identity,
+                kdf,
+                iterations,
+                memory,
+                parallelism,
+            };
+
+            match state.pending_two_factor.lock() {
+                Ok(mut pending) => *pending = Some(pending_state),
+                Err(e) => {
+                    log::error!("Failed to save pending 2FA state: {e}");
+                    return Err("Internal state error".to_string());
+                }
+            }
+
             return Ok(UnlockResult::TwoFactorRequired {
                 providers: providers.into_iter().map(|provider| provider as u8).collect(),
             });
@@ -47,35 +132,110 @@ pub async fn unlock(password: String, state: State<'_, AppState>) -> Result<Unlo
         Err(error) => return Err(error.to_string()),
     };
 
-    // Step 2: sync + unlock in background — don't block the UI.
     let app_handle = state.app_handle.clone();
     let client = state.client.clone();
     let agent_state = state.agent_state.clone();
-
-    tauri::async_runtime::spawn(async move {
-        let result = sync_and_unlock(client, agent_state, email, password, session).await;
-        match result {
-            Ok(()) => {
-                let _ = events::emit_lock_state_changed(&app_handle, false);
-                let _ = events::emit_vault_synced(&app_handle, events::VaultSyncedPayload {
-                    success: true,
-                    error: None,
-                });
-            }
-            Err(error) => {
-                log::error!("Background sync/unlock failed: {error}");
-                let _ = events::emit_vault_synced(&app_handle, events::VaultSyncedPayload {
-                    success: false,
-                    error: Some(error),
-                });
-            }
-        }
-    });
+    spawn_sync_and_unlock(app_handle, client, agent_state, email, password, session);
 
     Ok(UnlockResult::Success)
 }
 
-/// Background sync + unlock. Runs after `full_login` succeeds.
+#[tauri::command]
+pub async fn unlock_with_two_factor(
+    provider: u8,
+    code: String,
+    state: State<'_, AppState>,
+) -> Result<UnlockResult, String> {
+    {
+        let agent_state = state.agent_state.lock().await;
+        if agent_state.is_unlocked() {
+            return Ok(UnlockResult::Success);
+        }
+    }
+
+    // SAFETY: lock is held briefly (no .await while holding).
+    let pending = match state.pending_two_factor.lock() {
+        Ok(mut pending) => pending
+            .take()
+            .ok_or_else(|| "No pending two-factor login".to_string())?,
+        Err(e) => {
+            log::error!("Failed to access pending 2FA state: {e}");
+            return Err("Pending two-factor state is poisoned".to_string());
+        }
+    };
+
+    let two_factor_provider = bw_core::api::TwoFactorProviderType::try_from(u64::from(provider))
+        .map_err(|error| error.to_string())?;
+
+    let login_result = state
+        .client
+        .login(
+            &pending.email,
+            &pending.device_id,
+            &pending.identity.master_password_hash,
+            Some(&code),
+            Some(two_factor_provider),
+        )
+        .await;
+
+    match login_result {
+        Ok((access_token, refresh_token, protected_key)) => {
+            let email_for_session = pending.email.clone();
+            let session = bw_core::api::LoginSession {
+                access_token,
+                refresh_token,
+                kdf: pending.kdf,
+                iterations: pending.iterations,
+                memory: pending.memory,
+                parallelism: pending.parallelism,
+                protected_key,
+                email: email_for_session,
+                identity: pending.identity,
+            };
+
+            let app_handle = state.app_handle.clone();
+            let client = state.client.clone();
+            let agent_state = state.agent_state.clone();
+            spawn_sync_and_unlock(
+                app_handle,
+                client,
+                agent_state,
+                pending.email,
+                pending.password,
+                session,
+            );
+
+            Ok(UnlockResult::Success)
+        }
+        Err(ref err) => {
+            let error_msg = if matches!(err, bw_core::error::Error::TwoFactorRequired { .. }) {
+                "Verification code is incorrect. Please try again.".to_string()
+            } else {
+                err.to_string()
+            };
+
+            match state.pending_two_factor.lock() {
+                Ok(mut pending_state) => *pending_state = Some(pending),
+                Err(e) => {
+                    log::error!("Failed to restore pending 2FA state: {e}");
+                }
+            }
+
+            Err(error_msg)
+        }
+    }
+}
+
+/// Clear any pending 2FA login state. Call this everywhere the vault is locked.
+fn clear_pending_two_factor(state: &AppState) {
+    if let Ok(mut pending) = state.pending_two_factor.lock() {
+        if pending.take().is_some() {
+            log::debug!("Cleared pending two-factor login state");
+        }
+    }
+}
+
+/// Background sync + unlock. Runs after login succeeds.
 async fn sync_and_unlock(
     client: bw_core::api::Client,
     agent_state: std::sync::Arc<tokio::sync::Mutex<bw_agent::state::State>>,
@@ -213,6 +373,7 @@ pub async fn get_pending_approvals(
 #[tauri::command]
 pub async fn lock_vault(state: State<'_, AppState>) -> Result<(), String> {
     state.agent_state.lock().await.clear();
+    clear_pending_two_factor(&state);
     events::emit_lock_state_changed(&state.app_handle, true).map_err(|error| error.to_string())?;
     Ok(())
 }
