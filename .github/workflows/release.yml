@@ -63,6 +63,30 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      - name: Sync version from tag
+        run: |
+          if [[ -n "${{ inputs.tag }}" ]]; then
+            VERSION="${{ inputs.tag }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          # Strip leading 'v'
+          VERSION="${VERSION#v}"
+          echo "Syncing version to: $VERSION"
+
+          # package.json
+          jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+
+          # src-tauri/tauri.conf.json
+          jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+
+          # Cargo.toml files
+          for f in src-tauri/Cargo.toml crates/bw-agent/Cargo.toml crates/bw-core/Cargo.toml; do
+            if [[ -f "$f" ]]; then
+              sed -i "s/^version = \".*\"/version = \"$VERSION\"/" "$f"
+            fi
+          done
+
       - name: Prepare build environment
         uses: ./.github/actions/prepare-build
         with:
