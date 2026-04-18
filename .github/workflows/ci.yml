@@ -57,7 +57,7 @@ jobs:
       - name: Prepare build environment
         uses: ./.github/actions/prepare-build
         with:
-          install-tauri-linux-deps: 'false'
+          install-tauri-linux-deps: 'true'
 
       - uses: Swatinem/rust-cache@v2
         with:

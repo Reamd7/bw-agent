@@ -196,7 +196,7 @@ fn current_idle_seconds() -> Option<u64> {
     use core_graphics::event_source::CGEventSourceStateID;
 
     #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
+    unsafe extern "C" {
         fn CGEventSourceSecondsSinceLastEventType(
             state_id: CGEventSourceStateID,
             event_type: u32,
