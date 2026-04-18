@@ -1,12 +1,15 @@
 {
   "name": "bw-agent-frontend",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "rsbuild dev",
     "build": "rsbuild build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "cargo test --workspace",
+    "test:unit": "echo \"[placeholder] frontend unit tests not yet implemented (owned by task2)\" && exit 0",
+    "check": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings"
   },
   "dependencies": {
     "@solidjs/router": "^0.15.0",

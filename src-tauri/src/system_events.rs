@@ -5,8 +5,8 @@
 //! `lock-state-changed` event when the configured system event fires.
 
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
     Arc, OnceLock,
+    atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
 };
 use std::time::Duration;
 
@@ -177,7 +177,10 @@ fn current_idle_seconds() -> Option<u64> {
             dwTime: 0,
         };
         if GetLastInputInfo(&mut lii) == 0 {
-            log::warn!("GetLastInputInfo failed: {}", std::io::Error::last_os_error());
+            log::warn!(
+                "GetLastInputInfo failed: {}",
+                std::io::Error::last_os_error()
+            );
             return None;
         }
         let elapsed_ms = GetTickCount().wrapping_sub(lii.dwTime);
@@ -230,15 +233,12 @@ mod platform_windows {
     use tauri::Manager;
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::System::RemoteDesktop::{
-        NOTIFY_FOR_THIS_SESSION, WTSRegisterSessionNotification,
-        WTSUnRegisterSessionNotification,
+        NOTIFY_FOR_THIS_SESSION, WTSRegisterSessionNotification, WTSUnRegisterSessionNotification,
     };
-    use windows_sys::Win32::UI::Shell::{
-        DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass,
-    };
+    use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        PBT_APMSUSPEND, WM_ENDSESSION, WM_NCDESTROY, WM_POWERBROADCAST,
-        WM_QUERYENDSESSION, WM_WTSSESSION_CHANGE, WTS_SESSION_LOCK,
+        PBT_APMSUSPEND, WM_ENDSESSION, WM_NCDESTROY, WM_POWERBROADCAST, WM_QUERYENDSESSION,
+        WM_WTSSESSION_CHANGE, WTS_SESSION_LOCK,
     };
 
     const SUBCLASS_ID: usize = 0xB0A6_3E47;

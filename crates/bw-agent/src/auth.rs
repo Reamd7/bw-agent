@@ -59,7 +59,9 @@ async fn try_login<U: crate::UiCallback>(
                     .access_token
                     .clone()
                     .ok_or_else(|| anyhow::anyhow!("Missing access token"))?,
-                kdf: state.kdf.ok_or_else(|| anyhow::anyhow!("Missing KDF type"))?,
+                kdf: state
+                    .kdf
+                    .ok_or_else(|| anyhow::anyhow!("Missing KDF type"))?,
                 iterations: state
                     .iterations
                     .ok_or_else(|| anyhow::anyhow!("Missing KDF iterations"))?,

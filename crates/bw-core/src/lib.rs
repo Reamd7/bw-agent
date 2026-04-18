@@ -1,7 +1,7 @@
 pub mod api;
 pub mod base64;
-pub mod db;
 pub mod cipherstring;
+pub mod db;
 pub mod error;
 pub mod identity;
 pub mod json;

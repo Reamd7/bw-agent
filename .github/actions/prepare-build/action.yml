@@ -1,0 +1,57 @@
+name: 'Prepare build'
+description: |
+  Prepare a full build environment for bw-agent: Node/pnpm, Rust toolchain,
+  and the system packages Tauri needs on Linux. Composable across CI and
+  release workflows.
+
+inputs:
+  rust-toolchain:
+    description: 'Rust toolchain to install (stable/nightly/pinned)'
+    required: false
+    default: 'stable'
+  rust-components:
+    description: 'Extra rust components, comma separated (e.g. rustfmt,clippy)'
+    required: false
+    default: ''
+  rust-target:
+    description: 'Optional rust target triple to install'
+    required: false
+    default: ''
+  install-tauri-linux-deps:
+    description: 'Install Tauri Linux system deps (only used on Linux runners)'
+    required: false
+    default: 'true'
+  pnpm-install:
+    description: 'Whether to run pnpm install'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Frontend Environment
+      uses: ./.github/actions/prepare-pnpm
+      with:
+        install: ${{ inputs.pnpm-install }}
+
+    - name: Install Tauri Linux deps
+      if: ${{ runner.os == 'Linux' && inputs.install-tauri-linux-deps == 'true' }}
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -qqy \
+          build-essential \
+          libgtk-3-dev \
+          libwebkit2gtk-4.1-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          libxdo-dev \
+          libssl-dev \
+          pkg-config
+
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ inputs.rust-toolchain }}
+        components: ${{ inputs.rust-components }}
+        targets: ${{ inputs.rust-target }}

@@ -175,11 +175,19 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
 
         let (approval_request, approval_rx) = self
             .approval_queue
-            .create_request(&key_name, &fingerprint_str, &client_exe, self.client_pid, process_chain.clone())
+            .create_request(
+                &key_name,
+                &fingerprint_str,
+                &client_exe,
+                self.client_pid,
+                process_chain.clone(),
+            )
             .await;
 
         if !self.ui.request_approval(&approval_request).await {
-            self.approval_queue.respond(&approval_request.id, false).await;
+            self.approval_queue
+                .respond(&approval_request.id, false)
+                .await;
         }
 
         let approved = approval_rx.await.unwrap_or(false);
@@ -238,9 +246,9 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
                     .map_err(agent_error)?;
 
                 return match private_key.key_data() {
-                    ssh_agent_lib::ssh_key::private::KeypairData::Ed25519(key) => key
-                        .try_sign(&request.data)
-                        .map_err(agent_error),
+                    ssh_agent_lib::ssh_key::private::KeypairData::Ed25519(key) => {
+                        key.try_sign(&request.data).map_err(agent_error)
+                    }
                     ssh_agent_lib::ssh_key::private::KeypairData::Rsa(key) => {
                         use rsa::sha2::Digest as _;
 
@@ -274,7 +282,11 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
                                 sha1::Sha1::digest(&request.data)
                             };
                             let signature = rsa_key
-                                .sign_with_rng(&mut rng, rsa::Pkcs1v15Sign::new_unprefixed(), &digest)
+                                .sign_with_rng(
+                                    &mut rng,
+                                    rsa::Pkcs1v15Sign::new_unprefixed(),
+                                    &digest,
+                                )
                                 .map_err(agent_error)?;
                             ("ssh-rsa", signature)
                         };
@@ -305,14 +317,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_request_identities_returns_empty_when_no_entries() {
-        let state = Arc::new(Mutex::new(crate::state::State::new(
-            Some(std::time::Duration::from_secs(900)),
-        )));
+        let state = Arc::new(Mutex::new(crate::state::State::new(Some(
+            std::time::Duration::from_secs(900),
+        ))));
         {
             let mut state = state.lock().await;
             let mut keys = bw_core::locked::Vec::new();
             keys.extend(std::iter::repeat_n(0u8, 64));
-            state.set_unlocked(bw_core::locked::Keys::new(keys), std::collections::HashMap::new());
+            state.set_unlocked(
+                bw_core::locked::Keys::new(keys),
+                std::collections::HashMap::new(),
+            );
             state.email = Some("test@example.com".to_string());
         }
 
