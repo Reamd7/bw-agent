@@ -132,14 +132,21 @@ jobs:
             done
           fi
 
-          # macOS: .dmg / .app.tar.gz
+          # macOS: .dmg / .app.tar.gz (rename app.tar.gz to include arch to avoid collision)
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             shopt -s nullglob
             for f in \
-              ./target/${{ matrix.target }}/release/bundle/dmg/*.dmg \
-              ./target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+              ./target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             do
               cp "$f" ./release_artifacts/
+            done
+            for f in \
+              ./target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            do
+              base=$(basename "$f")
+              # bw-agent.app.tar.gz → bw-agent_aarch64.app.tar.gz / bw-agent_x86_64.app.tar.gz
+              renamed="${base/.app.tar.gz/_${{ matrix.target }}.app.tar.gz}"
+              cp "$f" "./release_artifacts/$renamed"
             done
           fi
 
