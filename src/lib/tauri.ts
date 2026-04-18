@@ -56,6 +56,8 @@ export interface Config {
 export const unlock = (password: string) => invoke<UnlockResult>("unlock", { password });
 export const submitPassword = (password: string | null) => invoke<void>("submit_password", { password });
 export const submitTwoFactor = (provider: number, code: string) => invoke<void>("submit_two_factor", { provider, code });
+export const unlockWithTwoFactor = (provider: number, code: string) =>
+  invoke<UnlockResult>("unlock_with_two_factor", { provider, code });
 export const listKeys = () => invoke<SshKeyInfo[]>("list_keys");
 export const getAccessLogs = (limit: number) => invoke<AccessLogEntry[]>("get_access_logs", { limit });
 export const approveRequest = (request_id: string, approved: boolean) => invoke<void>("approve_request", { requestId: request_id, approved });
