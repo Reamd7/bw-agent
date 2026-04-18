@@ -120,19 +120,20 @@ pub async fn start_agent_with_shared_state<U: UiCallback>(
     approval_queue: Arc<approval::ApprovalQueue>,
     access_log: Arc<access_log::AccessLog>,
 ) -> anyhow::Result<()> {
-    let email = config
-        .email
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("Email not configured"))?;
+    let email = config.email.clone().unwrap_or_default();
     let api_url = config.api_url();
     let identity_url = config.identity_url();
 
     {
         let mut state = state.lock().await;
-        state.email = Some(email.clone());
+        state.email = if email.is_empty() { None } else { Some(email.clone()) };
     }
 
-    log::info!("Email: {email}");
+    if email.is_empty() {
+        log::info!("Email: not configured — SSH agent running, vault operations will wait for setup");
+    } else {
+        log::info!("Email: {email}");
+    }
     log::info!("API URL: {api_url}");
     log::info!("Identity URL: {identity_url}");
     if let Some(proxy) = &config.proxy {
