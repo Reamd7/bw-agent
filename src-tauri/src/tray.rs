@@ -1,7 +1,9 @@
+#[cfg(target_os = "windows")]
+use tauri::tray::{MouseButton, MouseButtonState};
 use tauri::{
     App, AppHandle, Manager, Runtime,
     menu::{MenuBuilder, MenuItemBuilder},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    tray::{TrayIconBuilder, TrayIconEvent},
 };
 
 const MAIN_WINDOW_LABEL: &str = "main";
