@@ -134,7 +134,6 @@ fn main() {
 
             let mut config = bw_agent::config::Config::load();
             config.apply_env_overrides();
-            config.validate().map_err(to_tauri_error)?;
 
             let app_handle = app.handle().clone();
             let client = bw_core::api::Client::new(
@@ -151,6 +150,9 @@ fn main() {
 
             let mut initial_state = bw_agent::state::State::new(config.lock_mode.cache_ttl());
             initial_state.email = config.email.clone();
+            if config.email.is_none() {
+                log::info!("Email not configured — waiting for setup via UI");
+            }
             let agent_state = Arc::new(tokio::sync::Mutex::new(initial_state));
 
             let ui = TauriUiCallback {

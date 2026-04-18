@@ -157,6 +157,12 @@ impl Config {
         )
     }
 
+    /// Returns true when neither email nor base_url is configured.
+    /// Used by the Tauri frontend to decide whether to show the setup flow.
+    pub fn is_empty(&self) -> bool {
+        self.email.is_none() && self.base_url.is_none()
+    }
+
     /// Validate that required fields are present.
     pub fn validate(&self) -> anyhow::Result<()> {
         if self.email.is_none() {
@@ -321,5 +327,29 @@ mod tests {
         let json = r#"{"type":"on_lock"}"#;
         let mode: LockMode = serde_json::from_str(json).unwrap();
         assert_eq!(mode, LockMode::OnLock);
+    }
+
+    #[test]
+    fn test_is_empty_when_no_email_no_base_url() {
+        let config = Config::default();
+        assert!(config.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_false_when_email_set() {
+        let config = Config {
+            email: Some("user@example.com".to_string()),
+            ..Config::default()
+        };
+        assert!(!config.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_false_when_base_url_set() {
+        let config = Config {
+            base_url: Some("https://vault.example.com".to_string()),
+            ..Config::default()
+        };
+        assert!(!config.is_empty());
     }
 }
