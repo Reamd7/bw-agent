@@ -128,11 +128,13 @@ mod tests {
                     exe: "git.exe".to_string(),
                     pid: 1200,
                     cmdline: "git push".to_string(),
+                    cwd: "C:\\Users\\test\\repo".to_string(),
                 },
                 ProcessInfo {
                     exe: "ssh.exe".to_string(),
                     pid: 1234,
                     cmdline: "ssh git@github.com".to_string(),
+                    cwd: "C:\\Users\\test\\repo".to_string(),
                 },
             ],
         )
