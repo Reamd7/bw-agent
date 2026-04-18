@@ -6,6 +6,7 @@ import {
   unlock,
   submitPassword,
   submitTwoFactor,
+  unlockWithTwoFactor,
   getConfig,
   type UnlockResult,
 } from "../lib/tauri";
@@ -25,6 +26,7 @@ export default function LoginPage() {
   const [attempts, setAttempts] = createSignal(0);
   const [providers, setProviders] = createSignal<number[]>([]);
   const [serverUrl, setServerUrl] = createSignal<string | null>(null);
+  const [twoFactorSource, setTwoFactorSource] = createSignal<"ui" | "ssh">("ui");
 
   let unlistenPassword: UnlistenFn | undefined;
   let unlistenTwoFactor: UnlistenFn | undefined;
@@ -55,6 +57,7 @@ export default function LoginPage() {
       "two-factor-requested",
       (event) => {
         setProviders(event.payload.providers);
+        setTwoFactorSource("ssh");
         setStage("two_factor");
       }
     );
@@ -84,6 +87,7 @@ export default function LoginPage() {
       // TwoFactorRequired
       if (typeof result === "object" && "TwoFactorRequired" in result) {
         setProviders(result.TwoFactorRequired.providers);
+        setTwoFactorSource("ui");
         setStage("two_factor");
         return;
       }
@@ -110,20 +114,36 @@ export default function LoginPage() {
     setStage("submitting_2fa");
     setError(undefined);
 
+    const sshProvider = providers()[0];
+    if (sshProvider === undefined && twoFactorSource() === "ssh") {
+      setError("No 2FA provider available");
+      setStage("two_factor");
+      return;
+    }
+
     try {
-      await submitTwoFactor(0, code);
-      // After 2FA, try unlock again with the same password
-      const result = await unlock(password());
+      if (twoFactorSource() === "ssh") {
+        await submitTwoFactor(sshProvider!, code);
+        return;
+      }
+
+      // UI path: explicitly use Authenticator (0) since TotpInput only shows for this provider.
+      const result: UnlockResult = await unlockWithTwoFactor(0, code);
+
       if (result === "Success") {
         setStore("locked", false);
         if (email()) setStore("email", email());
         navigate("/dashboard");
-      } else {
-        setError("Unlock failed after 2FA");
+        return;
+      }
+
+      if (typeof result === "object" && "TwoFactorRequired" in result) {
+        setProviders(result.TwoFactorRequired.providers);
         setStage("two_factor");
+        return;
       }
     } catch (e: any) {
-      const msg = typeof e === "string" ? e : e?.message || "2FA failed";
+      const msg = typeof e === "string" ? e : e?.message || "2FA verification failed";
       setError(msg);
       setStage("two_factor");
     }
