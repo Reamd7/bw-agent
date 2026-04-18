@@ -6,12 +6,14 @@ interface AppStore {
   locked: boolean;
   pendingApprovals: ApprovalRequest[];
   email: string;
+  isSetupComplete: boolean;
 }
 
 export const [store, setStore] = createStore<AppStore>({
   locked: true,
   pendingApprovals: [],
   email: "",
+  isSetupComplete: true,
 });
 
 // Initialize event listeners

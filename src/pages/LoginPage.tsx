@@ -8,6 +8,7 @@ import {
   submitTwoFactor,
   unlockWithTwoFactor,
   getConfig,
+  saveConfig,
   type UnlockResult,
 } from "../lib/tauri";
 import { setStore } from "../lib/store";
@@ -28,6 +29,14 @@ export default function LoginPage() {
   const [serverUrl, setServerUrl] = createSignal<string | null>(null);
   const [twoFactorSource, setTwoFactorSource] = createSignal<"ui" | "ssh">("ui");
 
+  // Setup flow state (when config is empty)
+  const [isSetup, setIsSetup] = createSignal(false);
+  const [setupStage, setSetupStage] = createSignal<"server" | "email" | "password">("server");
+  const [serverChoice, setServerChoice] = createSignal<"official" | "self-hosted" | null>(null);
+  const [customUrl, setCustomUrl] = createSignal("");
+  const [setupEmail, setSetupEmail] = createSignal("");
+  const [savingConfig, setSavingConfig] = createSignal(false);
+
   let unlistenPassword: UnlistenFn | undefined;
   let unlistenTwoFactor: UnlistenFn | undefined;
 
@@ -35,7 +44,13 @@ export default function LoginPage() {
     // Load email and server URL from config
     try {
       const config = await getConfig();
-      if (config.email) setEmail(config.email);
+      if (config.email) {
+        setEmail(config.email);
+        setIsSetup(false);
+      } else {
+        setIsSetup(true);
+        setSetupStage("server");
+      }
       if (config.base_url) setServerUrl(config.base_url);
     } catch (e) {
       console.error("Failed to load config:", e);
@@ -67,6 +82,59 @@ export default function LoginPage() {
     unlistenPassword?.();
     unlistenTwoFactor?.();
   });
+
+  // ── Setup handlers ──────────────────────────────────────────────
+
+  const handleServerChoice = (choice: "official" | "self-hosted") => {
+    setServerChoice(choice);
+    if (choice === "official") {
+      setSetupStage("email");
+    }
+    // self-hosted: stay on server stage to show URL input
+  };
+
+  const handleConfirmServer = () => {
+    if (serverChoice() === "self-hosted" && !customUrl().trim()) return;
+    setSetupStage("email");
+  };
+
+  const handleSaveConfigAndContinue = async () => {
+    const emailVal = setupEmail().trim();
+    if (!emailVal) return;
+
+    setSavingConfig(true);
+    setError(undefined);
+    try {
+      const config = await getConfig();
+      config.email = emailVal;
+      if (serverChoice() === "self-hosted" && customUrl().trim()) {
+        config.base_url = customUrl().trim();
+        setServerUrl(customUrl().trim());
+      }
+      await saveConfig(config);
+      setEmail(emailVal);
+      setIsSetup(false);
+      setStore("email", emailVal);
+      setStore("isSetupComplete", true);
+    } catch (e: any) {
+      const msg = typeof e === "string" ? e : e?.message || "Failed to save config";
+      setError(msg);
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const handleSetupKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      if (setupStage() === "server" && serverChoice() === "self-hosted") {
+        handleConfirmServer();
+      } else if (setupStage() === "email") {
+        handleSaveConfigAndContinue();
+      }
+    }
+  };
+
+  // ── Unlock handlers ─────────────────────────────────────────────
 
   const handleUnlock = async () => {
     if (!password().trim()) return;
@@ -186,8 +254,91 @@ export default function LoginPage() {
           </Show>
         </div>
 
+        {/* ── Setup flow ─────────────────────────────────────────── */}
+
+        {/* Setup: Server choice */}
+        <Show when={isSetup() && setupStage() === "server"}>
+          <div class="space-y-4">
+            <p class="text-center text-sm text-zinc-400">Choose your Bitwarden server</p>
+            <Show when={error()}>
+              <p class="text-center text-sm text-red-500">{error()}</p>
+            </Show>
+            <div class="space-y-3">
+              <button
+                onClick={() => handleServerChoice("official")}
+                class="w-full py-3 px-4 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 hover:border-blue-500 rounded-lg text-left transition-colors"
+              >
+                <div class="font-medium text-zinc-100">Bitwarden Cloud</div>
+                <div class="text-xs text-zinc-400 mt-1">bitwarden.com</div>
+              </button>
+              <button
+                onClick={() => handleServerChoice("self-hosted")}
+                class="w-full py-3 px-4 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 hover:border-blue-500 rounded-lg text-left transition-colors"
+              >
+                <div class="font-medium text-zinc-100">Self-hosted Server</div>
+                <div class="text-xs text-zinc-400 mt-1">Your own Bitwarden instance</div>
+              </button>
+            </div>
+          </div>
+        </Show>
+
+        {/* Setup: Self-hosted URL input */}
+        <Show when={isSetup() && setupStage() === "server" && serverChoice() === "self-hosted"}>
+          <div class="space-y-3" onKeyDown={handleSetupKeyDown}>
+            <input
+              type="url"
+              value={customUrl()}
+              onInput={(e) => setCustomUrl(e.currentTarget.value)}
+              placeholder="https://vault.example.com"
+              class="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-md text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+              autofocus
+            />
+            <button
+              onClick={handleConfirmServer}
+              disabled={!customUrl().trim()}
+              class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-md transition-colors"
+            >
+              Continue
+            </button>
+          </div>
+        </Show>
+
+        {/* Setup: Email input */}
+        <Show when={isSetup() && setupStage() === "email"}>
+          <div class="space-y-4" onKeyDown={handleSetupKeyDown}>
+            <p class="text-center text-sm text-zinc-400">Enter your Bitwarden email</p>
+            <Show when={error()}>
+              <p class="text-center text-sm text-red-500">{error()}</p>
+            </Show>
+            <input
+              type="email"
+              value={setupEmail()}
+              onInput={(e) => setSetupEmail(e.currentTarget.value)}
+              placeholder="you@example.com"
+              class="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-md text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+              autofocus
+            />
+            <button
+              onClick={handleSaveConfigAndContinue}
+              disabled={!setupEmail().trim() || savingConfig()}
+              class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-md transition-colors"
+            >
+              {savingConfig() ? "Saving..." : "Continue"}
+            </button>
+            <button
+              onClick={() => { setSetupStage("server"); setServerChoice(null); setError(undefined); }}
+              disabled={savingConfig()}
+              class="w-full py-2 text-sm text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              ← Back to server selection
+            </button>
+          </div>
+        </Show>
+
+        {/* ── Normal login flow ───────────────────────────────────── */}
+
         {/* Password stage */}
-        <Show when={stage() === "password" || stage() === "submitting"}>
+        <Show when={!isSetup() && (stage() === "password" || stage() === "submitting")}>
           <div class="space-y-4" onKeyDown={handleKeyDown}>
             <PasswordInput
               value={password()}
@@ -212,7 +363,7 @@ export default function LoginPage() {
         </Show>
 
         {/* 2FA stage */}
-        <Show when={stage() === "two_factor" || stage() === "submitting_2fa"}>
+        <Show when={!isSetup() && (stage() === "two_factor" || stage() === "submitting_2fa")}>
           <div class="space-y-4">
             <p class="text-center text-sm text-zinc-300">
               Two-factor authentication required
@@ -237,7 +388,7 @@ export default function LoginPage() {
         </Show>
 
         {/* Cooldown stage */}
-        <Show when={stage() === "cooldown"}>
+        <Show when={!isSetup() && stage() === "cooldown"}>
           <div class="text-center space-y-3">
             <p class="text-red-400 font-medium">Too many failed attempts</p>
             <p class="text-sm text-zinc-400">Please wait before trying again...</p>
