@@ -27,5 +27,7 @@ target
 node_modules
 dist
 
+.worktrees
+
 # Tauri auto-generated files
 src-tauri/gen
