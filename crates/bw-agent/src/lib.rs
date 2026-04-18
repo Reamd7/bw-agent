@@ -126,11 +126,17 @@ pub async fn start_agent_with_shared_state<U: UiCallback>(
 
     {
         let mut state = state.lock().await;
-        state.email = if email.is_empty() { None } else { Some(email.clone()) };
+        state.email = if email.is_empty() {
+            None
+        } else {
+            Some(email.clone())
+        };
     }
 
     if email.is_empty() {
-        log::info!("Email: not configured — SSH agent running, vault operations will wait for setup");
+        log::info!(
+            "Email: not configured — SSH agent running, vault operations will wait for setup"
+        );
     } else {
         log::info!("Email: {email}");
     }
