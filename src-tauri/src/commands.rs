@@ -78,19 +78,19 @@ pub async fn unlock(password: String, state: State<'_, AppState>) -> Result<Unlo
         .prelogin(&email)
         .await
         .map_err(|error| error.to_string())?;
-    let identity = bw_core::identity::Identity::new(
-        &email,
-        &password,
-        kdf,
-        iterations,
-        memory,
-        parallelism,
-    )
-    .map_err(|error| error.to_string())?;
+    let identity =
+        bw_core::identity::Identity::new(&email, &password, kdf, iterations, memory, parallelism)
+            .map_err(|error| error.to_string())?;
 
     let login_result = state
         .client
-        .login(&email, &device_id, &identity.master_password_hash, None, None)
+        .login(
+            &email,
+            &device_id,
+            &identity.master_password_hash,
+            None,
+            None,
+        )
         .await;
 
     let session = match login_result {
