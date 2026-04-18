@@ -147,6 +147,11 @@ jobs:
           echo "--- Artifacts ---"
           ls -la ./release_artifacts
 
+      - name: Rename artifacts to match original semver
+        env:
+          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
+        run: node .github/scripts/rename-artifacts.mjs ./release_artifacts
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
