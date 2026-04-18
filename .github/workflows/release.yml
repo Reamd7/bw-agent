@@ -64,31 +64,10 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
 
       - name: Sync version from tag
+        env:
+          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
         run: |
-          if [[ -n "${{ inputs.tag }}" ]]; then
-            VERSION="${{ inputs.tag }}"
-          else
-            VERSION="${GITHUB_REF#refs/tags/}"
-          fi
-          # Strip leading 'v'
-          VERSION="${VERSION#v}"
-          echo "Syncing version to: $VERSION"
-
-          # package.json — full semver
-          jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
-
-          # tauri.conf.json — use MSI-safe version (numeric-only pre-release).
-          # MSI/WiX requires pre-release identifiers to be numeric and <= 65535.
-          # e.g. "0.0.0-alpha.0" → "0.0.0.0", "1.2.3-beta.4" → "1.2.3.4"
-          MSI_VERSION=$(echo "$VERSION" | sed -E 's/-[a-zA-Z]+\.([0-9]+)/.\1/' | sed -E 's/([0-9]+\.[0-9]+\.[0-9]+)\.([0-9]+)/\1.\2/')
-          jq --arg v "$MSI_VERSION" '.version = $v' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
-
-          # Cargo.toml files — use perl (portable across macOS/Linux/Windows)
-          for f in src-tauri/Cargo.toml crates/bw-agent/Cargo.toml crates/bw-core/Cargo.toml; do
-            if [[ -f "$f" ]]; then
-              perl -pi -e "s/^version = \".*\"/version = \"$VERSION\"/" "$f"
-            fi
-          done
+          node .github/scripts/sync-version.mjs
 
       - name: Prepare build environment
         uses: ./.github/actions/prepare-build
