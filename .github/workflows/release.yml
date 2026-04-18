@@ -74,16 +74,20 @@ jobs:
           VERSION="${VERSION#v}"
           echo "Syncing version to: $VERSION"
 
-          # package.json
+          # package.json — full semver
           jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
 
-          # src-tauri/tauri.conf.json
-          jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+          # tauri.conf.json — use MSI-safe version (numeric-only pre-release).
+          # MSI/WiX requires pre-release identifiers to be numeric and <= 65535.
+          # e.g. "0.0.0-alpha.0" → "0.0.0.0", "1.2.3-beta.4" → "1.2.3.4"
+          MSI_VERSION=$(echo "$VERSION" | sed -E 's/-[a-zA-Z]+\.([0-9]+)/.\1/; s/([0-9]+\.[0-9]+\.[0-9]+)\.([0-9]+)/\1.\2/')
+          # If no pre-release, keep as-is; if pre-release was non-numeric, it's now X.Y.Z.N
+          jq --arg v "$MSI_VERSION" '.version = $v' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
 
-          # Cargo.toml files
+          # Cargo.toml files — use | as sed delimiter to avoid conflict with version string
           for f in src-tauri/Cargo.toml crates/bw-agent/Cargo.toml crates/bw-core/Cargo.toml; do
             if [[ -f "$f" ]]; then
-              sed -i "s/^version = \".*\"/version = \"$VERSION\"/" "$f"
+              sed -i "s|^version = \".*\"|version = \"$VERSION\"|" "$f"
             fi
           done
 
