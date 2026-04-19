@@ -61,7 +61,7 @@ pub fn normalize_remote_url(raw_url: &str) -> Option<String> {
         return None;
     }
 
-    Some(url)
+    Some(url.to_ascii_lowercase())
 }
 
 /// Find a git process in the chain and extract its cwd.
@@ -297,6 +297,14 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_url_case_insensitive() {
+        assert_eq!(
+            normalize_remote_url("git@GitHub.com:Reamd7/bw-agent.git"),
+            Some("github.com/reamd7/bw-agent".to_string())
+        );
+    }
+
+    #[test]
     fn test_normalize_url_local_path() {
         assert_eq!(normalize_remote_url("/local/path"), None);
     }
@@ -359,7 +367,10 @@ mod tests {
         std::fs::write(&config_path, config_content).unwrap();
 
         let result = extract_remote_url_from_config(&config_path, "origin");
-        assert_eq!(result, Some("git@github.com:mycompany/repo.git".to_string()));
+        assert_eq!(
+            result,
+            Some("git@github.com:mycompany/repo.git".to_string())
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -410,10 +421,7 @@ mod tests {
         let worktree_dir = tmp.join("worktree");
         std::fs::create_dir_all(&worktree_dir).unwrap();
         // Use forward slashes for cross-platform compat in the gitdir file
-        let gitdir_content = format!(
-            "gitdir: {}",
-            admin_dir.to_string_lossy().replace('\\', "/")
-        );
+        let gitdir_content = format!("gitdir: {}", admin_dir.to_string_lossy().replace('\\', "/"));
         std::fs::write(worktree_dir.join(".git"), gitdir_content).unwrap();
 
         // find_git_config should follow .git → admin_dir → commondir → main config
@@ -496,7 +504,10 @@ mod tests {
 
         // No origin, multiple remotes → ambiguous
         let remote = resolve_remote_name(&dir.join("config"), &dir);
-        assert_eq!(remote, None, "multiple remotes with no origin and no branch should be ambiguous");
+        assert_eq!(
+            remote, None,
+            "multiple remotes with no origin and no branch should be ambiguous"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -580,7 +591,10 @@ mod tests {
 
         // find_git_config from subdir should walk up and find the config
         let result = find_git_config(&subdir);
-        assert!(result.is_some(), "should find config by walking up from subdirectory");
+        assert!(
+            result.is_some(),
+            "should find config by walking up from subdirectory"
+        );
 
         std::fs::remove_dir_all(&tmp).ok();
     }

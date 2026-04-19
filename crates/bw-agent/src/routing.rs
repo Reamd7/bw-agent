@@ -63,11 +63,21 @@ fn simple_glob_match(text: &str, pattern: &str) -> bool {
 
 /// Route entries based on remote URL and `gh-match` custom fields.
 ///
+/// `pattern_extractor` is called for each entry to obtain its gh-match patterns.
+/// This allows the caller to decrypt encrypted field names/values before matching.
+///
 /// Fallback cascade:
 /// 1. matched + generic (routing hit)
 /// 2. generic only (no hit, use generic keys)
 /// 3. all entries (no generic keys, full compatibility)
-pub fn route_entries(entries: &[Entry], remote_url: Option<&str>) -> Vec<Entry> {
+pub fn route_entries<F>(
+    entries: &[Entry],
+    remote_url: Option<&str>,
+    pattern_extractor: F,
+) -> Vec<Entry>
+where
+    F: Fn(&Entry) -> Vec<String>,
+{
     let Some(remote_url) = remote_url else {
         return entries.to_vec();
     };
@@ -76,7 +86,7 @@ pub fn route_entries(entries: &[Entry], remote_url: Option<&str>) -> Vec<Entry> 
     let mut generic = Vec::new();
 
     for entry in entries {
-        let patterns = extract_match_patterns(entry);
+        let patterns = pattern_extractor(entry);
         if patterns.is_empty() {
             generic.push(entry.clone());
         } else if matches_any_pattern(remote_url, &patterns) {
@@ -207,18 +217,16 @@ mod tests {
 
     #[test]
     fn test_route_entries_single_match() {
-        let work = make_ssh_entry(
-            "work",
-            vec![make_field("gh-match", "github.com/company/*")],
-        );
-        let personal = make_ssh_entry(
-            "personal",
-            vec![make_field("gh-match", "github.com/me/*")],
-        );
+        let work = make_ssh_entry("work", vec![make_field("gh-match", "github.com/company/*")]);
+        let personal = make_ssh_entry("personal", vec![make_field("gh-match", "github.com/me/*")]);
         let generic = make_ssh_entry("generic", vec![]);
 
         let entries = vec![work, personal, generic.clone()];
-        let result = route_entries(&entries, Some("github.com/company/repo"));
+        let result = route_entries(
+            &entries,
+            Some("github.com/company/repo"),
+            extract_match_patterns,
+        );
 
         assert_eq!(result.len(), 2);
         assert!(result.iter().any(|e| e.id == "work"));
@@ -228,18 +236,16 @@ mod tests {
 
     #[test]
     fn test_route_entries_fallback_generic() {
-        let work = make_ssh_entry(
-            "work",
-            vec![make_field("gh-match", "github.com/company/*")],
-        );
-        let personal = make_ssh_entry(
-            "personal",
-            vec![make_field("gh-match", "github.com/me/*")],
-        );
+        let work = make_ssh_entry("work", vec![make_field("gh-match", "github.com/company/*")]);
+        let personal = make_ssh_entry("personal", vec![make_field("gh-match", "github.com/me/*")]);
         let generic = make_ssh_entry("generic", vec![]);
 
         let entries = vec![work, personal, generic.clone()];
-        let result = route_entries(&entries, Some("github.com/unknown/repo"));
+        let result = route_entries(
+            &entries,
+            Some("github.com/unknown/repo"),
+            extract_match_patterns,
+        );
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, "generic");
@@ -247,42 +253,38 @@ mod tests {
 
     #[test]
     fn test_route_entries_fallback_all() {
-        let work = make_ssh_entry(
-            "work",
-            vec![make_field("gh-match", "github.com/company/*")],
-        );
-        let personal = make_ssh_entry(
-            "personal",
-            vec![make_field("gh-match", "github.com/me/*")],
-        );
+        let work = make_ssh_entry("work", vec![make_field("gh-match", "github.com/company/*")]);
+        let personal = make_ssh_entry("personal", vec![make_field("gh-match", "github.com/me/*")]);
 
         let entries = vec![work, personal];
-        let result = route_entries(&entries, Some("github.com/unknown/repo"));
+        let result = route_entries(
+            &entries,
+            Some("github.com/unknown/repo"),
+            extract_match_patterns,
+        );
 
         assert_eq!(result.len(), 2);
     }
 
     #[test]
     fn test_route_entries_no_remote_url() {
-        let work = make_ssh_entry(
-            "work",
-            vec![make_field("gh-match", "github.com/company/*")],
-        );
+        let work = make_ssh_entry("work", vec![make_field("gh-match", "github.com/company/*")]);
         let entries = vec![work];
-        let result = route_entries(&entries, None);
+        let result = route_entries(&entries, None, extract_match_patterns);
         assert_eq!(result.len(), 1);
     }
 
     #[test]
     fn test_route_entries_excluded_not_in_generic_fallback() {
-        let work = make_ssh_entry(
-            "work",
-            vec![make_field("gh-match", "github.com/company/*")],
-        );
+        let work = make_ssh_entry("work", vec![make_field("gh-match", "github.com/company/*")]);
         let generic = make_ssh_entry("generic", vec![]);
 
         let entries = vec![work, generic.clone()];
-        let result = route_entries(&entries, Some("github.com/other/repo"));
+        let result = route_entries(
+            &entries,
+            Some("github.com/other/repo"),
+            extract_match_patterns,
+        );
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, "generic");

@@ -81,10 +81,7 @@ fn agent_error(error: impl std::fmt::Display) -> ssh_agent_lib::error::AgentErro
 /// Find the entry ID and decrypted name matching the given public key bytes.
 ///
 /// Returns `None` if no entry matches.
-fn find_entry_for_pubkey(
-    state: &State,
-    requested_bytes: &[u8],
-) -> Option<(String, String)> {
+fn find_entry_for_pubkey(state: &State, requested_bytes: &[u8]) -> Option<(String, String)> {
     for entry in &state.entries {
         if let bw_core::db::EntryData::SshKey {
             public_key: Some(encrypted_pubkey),
@@ -97,9 +94,7 @@ fn find_entry_for_pubkey(
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ) {
-                if let Ok(pubkey) =
-                    ssh_agent_lib::ssh_key::PublicKey::from_openssh(&pubkey_plain)
-                {
+                if let Ok(pubkey) = ssh_agent_lib::ssh_key::PublicKey::from_openssh(&pubkey_plain) {
                     if let Ok(bytes) = pubkey.to_bytes() {
                         if bytes == requested_bytes {
                             let decrypted_name = auth::decrypt_cipher(
@@ -135,8 +130,36 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
 
         let state = self.state.lock().await;
 
+        // Extract gh-match patterns with decrypted field names/values.
+        let extract_patterns = |entry: &bw_core::db::Entry| -> Vec<String> {
+            entry
+                .fields
+                .iter()
+                .filter_map(|f| {
+                    let field_name = auth::decrypt_cipher(
+                        &state,
+                        f.name.as_deref()?,
+                        entry.key.as_deref(),
+                        entry.org_id.as_deref(),
+                    )
+                    .ok()?;
+                    if field_name == "gh-match" {
+                        auth::decrypt_cipher(
+                            &state,
+                            f.value.as_deref()?,
+                            entry.key.as_deref(),
+                            entry.org_id.as_deref(),
+                        )
+                        .ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+
         let routed_entries =
-            crate::routing::route_entries(&state.entries, remote_url.as_deref());
+            crate::routing::route_entries(&state.entries, remote_url.as_deref(), extract_patterns);
 
         // Cache allowed entry IDs for sign() enforcement.
         self.allowed_entry_ids = Some(routed_entries.iter().map(|e| e.id.clone()).collect());
@@ -198,7 +221,10 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
         // Per-session routing enforcement.
         if let Some(allowed_ids) = &self.allowed_entry_ids {
             if entry_id != "unknown" && !allowed_ids.contains(&entry_id) {
-                log::warn!("sign() rejected: entry {} not in session allowed set", entry_id);
+                log::warn!(
+                    "sign() rejected: entry {} not in session allowed set",
+                    entry_id
+                );
                 return Err(ssh_agent_lib::error::AgentError::Other(
                     "Sign request rejected: key not authorized for this session".into(),
                 ));
