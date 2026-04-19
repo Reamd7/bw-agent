@@ -629,11 +629,27 @@ fn resolve_cmdline(pid: u32) -> String {
     "unknown".to_string()
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn resolve_cwd(pid: u32) -> String {
     if let Ok(cwd) = std::fs::read_link(format!("/proc/{pid}/cwd")) {
         return cwd.to_string_lossy().into_owned();
     }
+    String::new()
+}
+
+#[cfg(target_os = "macos")]
+pub fn resolve_cwd(pid: u32) -> String {
+    // macOS has no /proc filesystem. For the current process, use std::env.
+    // For other processes, use proc_info via libc.
+    if pid == std::process::id() {
+        return std::env::current_dir()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+    }
+
+    // For other processes on macOS, proc_pidinfo with PROC_PIDVNODEPATHINFO
+    // would be needed. For now, return empty — routing will use parent git
+    // process's cwd from the chain which may include the current process.
     String::new()
 }
 
