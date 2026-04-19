@@ -3,10 +3,10 @@ pub mod approval;
 pub mod auth;
 pub mod config;
 pub mod git_context;
-pub mod routing;
 #[cfg(windows)]
 pub mod pipe;
 pub mod process;
+pub mod routing;
 pub mod ssh_agent;
 pub mod state;
 
