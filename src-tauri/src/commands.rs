@@ -18,6 +18,13 @@ pub enum UnlockResult {
     TwoFactorRequired { providers: Vec<u8> },
 }
 
+#[derive(serde::Serialize)]
+pub struct GitSigningStatus {
+    pub ssh_program: Option<String>,
+    pub gpg_format: Option<String>,
+    pub commit_gpgsign: bool,
+}
+
 /// Spawn background sync + vault unlock after successful login.
 /// Shared by `unlock` and `unlock_with_two_factor` to avoid duplication.
 fn spawn_sync_and_unlock(
@@ -230,12 +237,71 @@ pub async fn unlock_with_two_factor(
     }
 }
 
+#[tauri::command]
+pub async fn get_git_signing_status() -> Result<GitSigningStatus, String> {
+    let ssh_program = git_config_get("gpg.ssh.program").ok();
+    let gpg_format = git_config_get("gpg.format").ok();
+    let commit_gpgsign = git_config_get("commit.gpgsign")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    Ok(GitSigningStatus {
+        ssh_program,
+        gpg_format,
+        commit_gpgsign,
+    })
+}
+
+#[tauri::command]
+pub async fn configure_git_signing() -> Result<(), String> {
+    let exe_path =
+        std::env::current_exe().map_err(|e| format!("Cannot determine executable path: {e}"))?;
+    let program = format!("{} git-sign", exe_path.display());
+
+    git_config_set("gpg.ssh.program", &program)?;
+    git_config_set("gpg.format", "ssh")?;
+    git_config_set("commit.gpgsign", "true")?;
+
+    Ok(())
+}
+
 /// Clear any pending 2FA login state. Call this everywhere the vault is locked.
 fn clear_pending_two_factor(state: &AppState) {
     if let Ok(mut pending) = state.pending_two_factor.lock() {
         if pending.take().is_some() {
             log::debug!("Cleared pending two-factor login state");
         }
+    }
+}
+
+fn git_config_get(key: &str) -> Result<String, String> {
+    let output = std::process::Command::new("git")
+        .args(["config", "--global", "--get", key])
+        .output()
+        .map_err(|e| format!("Failed to run git: {e}"))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        Err(format!("git config --get {key} failed"))
+    }
+}
+
+fn git_config_set(key: &str, value: &str) -> Result<(), String> {
+    let output = std::process::Command::new("git")
+        .args(["config", "--global", key, value])
+        .output()
+        .map_err(|e| format!("Failed to run git: {e}"))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "git config --global {} {} failed: {}",
+            key,
+            value,
+            String::from_utf8_lossy(&output.stderr)
+        ))
     }
 }
 

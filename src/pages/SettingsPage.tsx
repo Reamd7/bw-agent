@@ -1,5 +1,15 @@
 import { createSignal, onMount, Show } from "solid-js";
-import { getConfig, saveConfig, lockVault, updateLockMode, type Config, type LockMode } from "../lib/tauri";
+import {
+  getConfig,
+  saveConfig,
+  lockVault,
+  updateLockMode,
+  getGitSigningStatus,
+  configureGitSigning,
+  type Config,
+  type LockMode,
+  type GitSigningStatus,
+} from "../lib/tauri";
 import { store } from "../lib/store";
 
 function navigate(path: string) {
@@ -22,6 +32,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = createSignal(false);
   const [toast, setToast] = createSignal<{ message: string; type: "success" | "error" } | null>(null);
   let originalConfig: Config | null = null;
+  const [gitSigningStatus, setGitSigningStatus] = createSignal<GitSigningStatus | null>(null);
+  const [configuring, setConfiguring] = createSignal(false);
 
   const [lockPreset, setLockPreset] = createSignal<string>("15m");
 
@@ -50,6 +62,13 @@ export default function SettingsPage() {
         setLockPreset("restart");
       } else if (mode.type === "never") {
         setLockPreset("never");
+      }
+
+      try {
+        const status = await getGitSigningStatus();
+        setGitSigningStatus(status);
+      } catch (e) {
+        console.error("Failed to get git signing status:", e);
       }
     } catch (e) {
       console.error("Failed to load config:", e);
@@ -115,6 +134,24 @@ export default function SettingsPage() {
     }
     
     setConfig(prev => ({ ...prev, lock_mode: newMode }));
+  };
+
+  const handleConfigureGitSigning = async () => {
+    setConfiguring(true);
+    setToast(null);
+
+    try {
+      await configureGitSigning();
+      const status = await getGitSigningStatus();
+      setGitSigningStatus(status);
+      setToast({ message: "Git SSH signing configured successfully", type: "success" });
+      setTimeout(() => setToast(null), 3000);
+    } catch (e) {
+      console.error("Failed to configure git signing:", e);
+      setToast({ message: "Failed to configure git signing", type: "error" });
+    } finally {
+      setConfiguring(false);
+    }
   };
 
   const updateField = (field: keyof Config, value: string | number | null) => {
@@ -323,6 +360,63 @@ export default function SettingsPage() {
                         placeholder="http://proxy.example.com:8080"
                       />
                     </div>
+                  </div>
+
+                  <div class="sm:col-span-6 pt-6">
+                    <h2 class="text-lg font-medium leading-6 text-gray-900">Git Signing</h2>
+                    <p class="mt-1 text-sm text-gray-500">
+                      Configure git to use bw-agent for SSH commit signing.
+                    </p>
+                  </div>
+
+                  <div class="sm:col-span-6">
+                    <Show
+                      when={gitSigningStatus()?.ssh_program != null && gitSigningStatus()?.gpg_format === "ssh" && gitSigningStatus()?.commit_gpgsign}
+                      fallback={
+                        <div class="rounded-md bg-yellow-50 p-4">
+                          <div class="flex">
+                            <div class="flex-shrink-0">
+                              <svg class="h-5 w-5 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                              </svg>
+                            </div>
+                            <div class="ml-3 flex-1">
+                              <p class="text-sm text-yellow-700">
+                                Git SSH signing is not configured.
+                              </p>
+                              <div class="mt-3">
+                                <button
+                                  type="button"
+                                  onClick={handleConfigureGitSigning}
+                                  disabled={configuring()}
+                                  class="inline-flex items-center rounded-md bg-yellow-50 px-3 py-2 text-sm font-medium text-yellow-800 hover:bg-yellow-100 focus:outline-none focus:ring-2 focus:ring-yellow-600 focus:ring-offset-2 focus:ring-offset-yellow-50 disabled:opacity-50"
+                                >
+                                  {configuring() ? "Configuring..." : "Configure Git SSH Signing"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      }
+                    >
+                      <div class="rounded-md bg-green-50 p-4">
+                        <div class="flex">
+                          <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </div>
+                          <div class="ml-3">
+                            <p class="text-sm font-medium text-green-800">
+                              Git SSH signing is configured
+                            </p>
+                            <p class="mt-1 text-sm text-green-700">
+                              gpg.ssh.program: {gitSigningStatus()?.ssh_program}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </Show>
                   </div>
                 </div>
               </div>

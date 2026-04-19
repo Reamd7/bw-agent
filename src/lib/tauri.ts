@@ -54,6 +54,12 @@ export interface Config {
   proxy: string | null;
 }
 
+export interface GitSigningStatus {
+  ssh_program: string | null;
+  gpg_format: string | null;
+  commit_gpgsign: boolean;
+}
+
 export const unlock = (password: string) => invoke<UnlockResult>("unlock", { password });
 export const submitPassword = (password: string | null) => invoke<void>("submit_password", { password });
 export const submitTwoFactor = (provider: number, code: string) => invoke<void>("submit_two_factor", { provider, code });
@@ -68,3 +74,5 @@ export const manualSync = () => invoke<void>("manual_sync");
 export const getConfig = () => invoke<Config>("get_config");
 export const saveConfig = (config: Config) => invoke<void>("save_config", { config });
 export const updateLockMode = (lockMode: LockMode) => invoke<void>("update_lock_mode", { lockMode });
+export const getGitSigningStatus = () => invoke<GitSigningStatus>("get_git_signing_status");
+export const configureGitSigning = () => invoke<void>("configure_git_signing");
