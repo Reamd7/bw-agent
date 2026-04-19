@@ -13,8 +13,8 @@
     "windows": [
       {
         "label": "main",
-        "title": "bw-agent",
-        "visible": false,
+        "title": "Bitwarden Agent",
+        "visible": true,
         "width": 480,
         "height": 640,
         "resizable": true,

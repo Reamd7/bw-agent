@@ -155,7 +155,7 @@ export default function DashboardPage() {
         <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div class="flex h-16 justify-between items-center">
             <div class="flex items-center">
-              <h1 class="text-xl font-bold text-gray-900">Bitwarden SSH Agent</h1>
+              <h1 class="text-xl font-bold text-gray-900">Bitwarden Agent</h1>
             </div>
             <div class="flex items-center space-x-4">
               <span class="text-sm text-gray-500">{store.email}</span>
