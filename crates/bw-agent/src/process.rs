@@ -7,6 +7,8 @@ pub struct ProcessInfo {
     pub pid: u32,
     /// Full command line, or "unknown" if unavailable.
     pub cmdline: String,
+    /// Current working directory, or "unknown" if unavailable.
+    pub cwd: String,
 }
 
 /// Hard-stop processes: true root/system processes where walking must stop.
@@ -60,6 +62,7 @@ pub fn resolve_process_chain(pid: u32) -> Vec<ProcessInfo> {
             exe: "unknown".to_string(),
             pid: 0,
             cmdline: "unknown".to_string(),
+            cwd: "unknown".to_string(),
         }];
     }
 
@@ -175,7 +178,13 @@ pub fn resolve_process_chain(pid: u32) -> Vec<ProcessInfo> {
 fn query_process_info(pid: u32) -> ProcessInfo {
     let exe = resolve_exe(pid);
     let cmdline = resolve_cmdline(pid);
-    ProcessInfo { exe, pid, cmdline }
+    let cwd = resolve_cwd(pid);
+    ProcessInfo {
+        exe,
+        pid,
+        cmdline,
+        cwd,
+    }
 }
 
 // ---- Platform-specific implementations ----
@@ -434,6 +443,136 @@ fn resolve_cmdline(pid: u32) -> String {
     }
 }
 
+#[cfg(windows)]
+pub fn resolve_cwd(pid: u32) -> String {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use std::ptr;
+
+    if pid == std::process::id() {
+        if let Ok(cwd) = std::env::current_dir() {
+            return cwd.to_string_lossy().into_owned();
+        }
+    }
+
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const PROCESS_VM_READ: u32 = 0x0010;
+
+    #[repr(C)]
+    struct ProcessBasicInformation {
+        reserved1: usize,
+        peb_base_address: usize,
+        reserved2: [usize; 2],
+        unique_process_id: usize,
+        reserved3: usize,
+    }
+
+    const PARAMS_CWD_OFFSET: usize = 0x38;
+    const PEB_PARAMS_OFFSET: usize = 0x20;
+
+    unsafe extern "system" {
+        fn OpenProcess(desired_access: u32, inherit_handle: i32, pid: u32) -> isize;
+        fn CloseHandle(handle: isize) -> i32;
+        fn ReadProcessMemory(
+            process: isize,
+            base_address: usize,
+            buffer: *mut u8,
+            size: usize,
+            bytes_read: *mut usize,
+        ) -> i32;
+    }
+
+    unsafe {
+        let ntdll = load_ntdll();
+        if ntdll.is_null() {
+            return String::new();
+        }
+        let Some(nqip) = get_nqip(ntdll) else {
+            return String::new();
+        };
+
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid);
+        if handle == 0 {
+            return String::new();
+        }
+
+        let mut pbi = std::mem::zeroed::<ProcessBasicInformation>();
+        let mut return_length: u32 = 0;
+        let status = nqip(
+            handle,
+            0,
+            &mut pbi as *mut _ as *mut u8,
+            std::mem::size_of::<ProcessBasicInformation>() as u32,
+            &mut return_length,
+        );
+        if status != 0 {
+            CloseHandle(handle);
+            return String::new();
+        }
+
+        let peb_addr = pbi.peb_base_address;
+        if peb_addr == 0 {
+            CloseHandle(handle);
+            return String::new();
+        }
+
+        let mut params_ptr: usize = 0;
+        if ReadProcessMemory(
+            handle,
+            peb_addr + PEB_PARAMS_OFFSET,
+            &mut params_ptr as *mut usize as *mut u8,
+            std::mem::size_of::<usize>(),
+            ptr::null_mut(),
+        ) == 0
+        {
+            CloseHandle(handle);
+            return String::new();
+        }
+
+        let mut cwd_struct = [0u8; 16];
+        if ReadProcessMemory(
+            handle,
+            params_ptr + PARAMS_CWD_OFFSET,
+            cwd_struct.as_mut_ptr(),
+            cwd_struct.len(),
+            ptr::null_mut(),
+        ) == 0
+        {
+            CloseHandle(handle);
+            return String::new();
+        }
+
+        let length = u16::from_le_bytes([cwd_struct[0], cwd_struct[1]]) as usize;
+        let buffer_ptr = usize::from_le_bytes(cwd_struct[8..16].try_into().unwrap_or([0; 8]));
+
+        if length == 0 || buffer_ptr == 0 || length > 32768 {
+            CloseHandle(handle);
+            return String::new();
+        }
+
+        let mut cwd_buf = vec![0u8; length];
+        if ReadProcessMemory(
+            handle,
+            buffer_ptr,
+            cwd_buf.as_mut_ptr(),
+            length,
+            ptr::null_mut(),
+        ) == 0
+        {
+            CloseHandle(handle);
+            return String::new();
+        }
+
+        CloseHandle(handle);
+
+        let wide: Vec<u16> = cwd_buf
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        OsString::from_wide(&wide).to_string_lossy().into_owned()
+    }
+}
+
 /// Load ntdll.dll handle.
 #[cfg(windows)]
 unsafe fn load_ntdll() -> *mut core::ffi::c_void {
@@ -490,6 +629,30 @@ fn resolve_cmdline(pid: u32) -> String {
     "unknown".to_string()
 }
 
+#[cfg(target_os = "linux")]
+pub fn resolve_cwd(pid: u32) -> String {
+    if let Ok(cwd) = std::fs::read_link(format!("/proc/{pid}/cwd")) {
+        return cwd.to_string_lossy().into_owned();
+    }
+    String::new()
+}
+
+#[cfg(target_os = "macos")]
+pub fn resolve_cwd(pid: u32) -> String {
+    // macOS has no /proc filesystem. For the current process, use std::env.
+    // For other processes, use proc_info via libc.
+    if pid == std::process::id() {
+        return std::env::current_dir()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+    }
+
+    // For other processes on macOS, proc_pidinfo with PROC_PIDVNODEPATHINFO
+    // would be needed. For now, return empty — routing will use parent git
+    // process's cwd from the chain which may include the current process.
+    String::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -500,11 +663,38 @@ mod tests {
             exe: "C:\\Windows\\System32\\ssh.exe".to_string(),
             pid: 1234,
             cmdline: "ssh git@github.com".to_string(),
+            cwd: "C:\\Users\\test\\repo".to_string(),
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("ssh.exe"));
+        assert!(json.contains("repo"));
         let deserialized: ProcessInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.pid, 1234);
+        assert_eq!(deserialized.cwd, "C:\\Users\\test\\repo");
+    }
+
+    #[test]
+    fn test_process_info_has_cwd_field() {
+        let info = ProcessInfo {
+            exe: "ssh".to_string(),
+            pid: 42,
+            cmdline: "ssh git@example.com".to_string(),
+            cwd: "repo".to_string(),
+        };
+
+        assert_eq!(info.cwd, "repo");
+    }
+
+    #[test]
+    fn test_resolve_cwd_current_process() {
+        let cwd = resolve_cwd(std::process::id());
+        assert!(!cwd.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_cwd_invalid_pid() {
+        let cwd = resolve_cwd(999999);
+        assert!(cwd.is_empty());
     }
 
     #[test]

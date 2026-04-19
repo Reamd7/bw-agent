@@ -9,6 +9,7 @@ pub struct SshKeyInfo {
     pub name: String,
     pub key_type: String,
     pub fingerprint: String,
+    pub match_patterns: Vec<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -339,12 +340,39 @@ pub async fn list_keys(state: State<'_, AppState>) -> Result<Vec<SshKeyInfo>, St
             let parsed_public_key = ssh_agent_lib::ssh_key::PublicKey::from_openssh(&public_key)
                 .map_err(|error| error.to_string())?;
 
+            let match_patterns: Vec<String> = entry
+                .fields
+                .iter()
+                .filter_map(|f| {
+                    let field_name = bw_agent::auth::decrypt_cipher(
+                        &agent_state,
+                        f.name.as_deref()?,
+                        entry.key.as_deref(),
+                        entry.org_id.as_deref(),
+                    )
+                    .ok()?;
+                    if field_name == "gh-match" {
+                        let field_value = f.value.as_deref()?;
+                        bw_agent::auth::decrypt_cipher(
+                            &agent_state,
+                            field_value,
+                            entry.key.as_deref(),
+                            entry.org_id.as_deref(),
+                        )
+                        .ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
             Ok(SshKeyInfo {
                 name,
                 key_type: key_type_from_public_key(&public_key),
                 fingerprint: parsed_public_key
                     .fingerprint(Default::default())
                     .to_string(),
+                match_patterns,
             })
         })
         .collect()
@@ -383,6 +411,40 @@ pub async fn lock_vault(state: State<'_, AppState>) -> Result<(), String> {
     state.agent_state.lock().await.clear();
     clear_pending_two_factor(&state);
     events::emit_lock_state_changed(&state.app_handle, true).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn manual_sync(state: State<'_, AppState>) -> Result<(), String> {
+    let access_token = {
+        let agent_state = state.agent_state.lock().await;
+        if !agent_state.is_unlocked() {
+            return Err("Vault is locked".to_string());
+        }
+        agent_state.access_token.clone().ok_or("No access token")?
+    };
+
+    let sync_data = bw_core::api::sync_vault(&state.client, &access_token)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    {
+        let mut agent_state = state.agent_state.lock().await;
+        if agent_state.is_unlocked() {
+            agent_state.entries = sync_data.entries;
+            agent_state.protected_org_keys = sync_data.org_keys;
+        }
+    }
+
+    events::emit_vault_synced(
+        &state.app_handle,
+        events::VaultSyncedPayload {
+            success: true,
+            error: None,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
