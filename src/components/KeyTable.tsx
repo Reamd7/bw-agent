@@ -1,5 +1,4 @@
-import { For, Show, createSignal } from "solid-js";
-import type { SshKeyInfo } from "../lib/tauri";
+import { For, Show, createSignal } from "solid-js";import type { SshKeyInfo } from "../lib/tauri";
 
 interface KeyTableProps {
   keys: SshKeyInfo[];
@@ -86,6 +85,23 @@ export function KeyTable(props: KeyTableProps) {
                               <span class="font-medium text-gray-500">Fingerprint: </span>
                               <span class="font-mono text-gray-900 break-all">{key.fingerprint}</span>
                             </div>
+                            <Show when={key.match_patterns.length > 0}>
+                              <div class="mt-1 pt-2 border-t border-gray-200">
+                                <div class="flex items-start">
+                                  <span class="font-medium text-blue-600 shrink-0">密钥路由规则: </span>
+                                  <span class="ml-1 text-gray-600 text-xs leading-5">根据 Git 仓库地址自动选择此密钥</span>
+                                </div>
+                                <div class="mt-1 flex flex-wrap gap-1.5">
+                                  <For each={key.match_patterns}>
+                                    {(pattern) => (
+                                      <span class="inline-flex items-center rounded-md bg-blue-50 px-2.5 py-0.5 text-xs font-medium font-mono text-blue-700 ring-1 ring-inset ring-blue-600/20">
+                                        {pattern}
+                                      </span>
+                                    )}
+                                  </For>
+                                </div>
+                              </div>
+                            </Show>
                           </div>
                         </td>
                       </tr>

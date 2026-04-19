@@ -236,6 +236,7 @@ fn main() {
             commands::approve_request,
             commands::get_pending_approvals,
             commands::lock_vault,
+            commands::manual_sync,
             commands::get_config,
             commands::save_config,
             commands::update_lock_mode,

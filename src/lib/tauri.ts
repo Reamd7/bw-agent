@@ -4,6 +4,7 @@ export interface SshKeyInfo {
   name: string;
   key_type: string;
   fingerprint: string;
+  match_patterns: string[];
 }
 
 export type UnlockResult = 
@@ -63,6 +64,7 @@ export const getAccessLogs = (limit: number) => invoke<AccessLogEntry[]>("get_ac
 export const approveRequest = (request_id: string, approved: boolean) => invoke<void>("approve_request", { requestId: request_id, approved });
 export const getPendingApprovals = () => invoke<ApprovalRequest[]>("get_pending_approvals");
 export const lockVault = () => invoke<void>("lock_vault");
+export const manualSync = () => invoke<void>("manual_sync");
 export const getConfig = () => invoke<Config>("get_config");
 export const saveConfig = (config: Config) => invoke<void>("save_config", { config });
 export const updateLockMode = (lockMode: LockMode) => invoke<void>("update_lock_mode", { lockMode });

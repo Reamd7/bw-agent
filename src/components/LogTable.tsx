@@ -245,6 +245,11 @@ function LogDetailModal(props: { log: AccessLogEntry; onClose: () => void }) {
             </div>
 
             <div>
+              <span class="font-medium text-gray-500">Key: </span>
+              <span class="text-gray-900">{props.log.key_name}</span>
+            </div>
+
+            <div>
               <span class="font-medium text-gray-500">Fingerprint:</span>
               <div class="mt-1 font-mono text-xs text-gray-700 break-all rounded bg-gray-50 p-2">
                 {props.log.key_fingerprint}
