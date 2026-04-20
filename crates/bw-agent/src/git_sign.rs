@@ -37,6 +37,7 @@ pub fn run(
         "sign" => sign_action(namespace, key_file, data_file),
         "verify" => verify_action(namespace, key_file, principal, signature_file, data_file),
         "find-principals" => find_principals_action(namespace, key_file, signature_file, data_file),
+        "match-principals" => match_principals_action(key_file, principal),
         "check-novalidate" => check_novalidate_action(namespace, signature_file, data_file),
         _ => Err(anyhow!("unsupported action: {action}")),
     };
@@ -151,6 +152,33 @@ fn find_principals_action(
 
     for matched in matched_principals {
         println!("{matched}");
+    }
+
+    Ok(())
+}
+
+fn match_principals_action(key_file: Option<&str>, principal: Option<&str>) -> anyhow::Result<()> {
+    let allowed_signers_path = required_path(key_file, "-f/--key-file")?;
+    let principal =
+        principal.ok_or_else(|| anyhow!("missing required principal (-I/--principal)"))?;
+    let allowed_signers = parse_allowed_signers_file(&allowed_signers_path)?;
+
+    let matched: Vec<&str> = allowed_signers
+        .iter()
+        .filter(|entry| entry.principals.iter().any(|p| p == principal))
+        .flat_map(|entry| entry.principals.iter().map(String::as_str))
+        .collect();
+
+    if matched.is_empty() {
+        eprintln!("No principal matched.");
+        process::exit(255);
+    }
+
+    let mut seen = BTreeSet::new();
+    for p in matched {
+        if seen.insert(p) {
+            println!("{p}");
+        }
     }
 
     Ok(())
@@ -465,5 +493,46 @@ R6qbyo6hPuCiV9cAAAAAAQID
 
         assert_eq!(key_type_string(&ed25519), "ED25519");
         assert_eq!(key_type_string(&rsa), "RSA");
+    }
+
+    #[test]
+    fn match_principals_finds_entries() {
+        let rsa_public_key = ssh_key::PrivateKey::from_openssh(RSA_PRIVATE_KEY)
+            .unwrap()
+            .public_key()
+            .to_openssh()
+            .unwrap();
+        let mut rsa_parts = rsa_public_key.split_whitespace();
+        let _ = rsa_parts.next().unwrap();
+        let rsa_blob = rsa_parts.next().unwrap();
+
+        let allowed_signers = parse_allowed_signers(&format!(
+            "alice,bob ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILM+rvN+ot98qgEN796jTiQfZfG1KaT0PtFDJ/XFSqti\ncarol rsa-sha2-512 {rsa_blob}\n"
+        ))
+        .unwrap();
+
+        // "alice" matches the first entry, which has principals ["alice", "bob"]
+        let matched: Vec<&str> = allowed_signers
+            .iter()
+            .filter(|entry| entry.principals.iter().any(|p| p == "alice"))
+            .flat_map(|entry| entry.principals.iter().map(String::as_str))
+            .collect();
+        assert_eq!(matched, vec!["alice", "bob"]);
+
+        // "carol" matches the second entry
+        let matched: Vec<&str> = allowed_signers
+            .iter()
+            .filter(|entry| entry.principals.iter().any(|p| p == "carol"))
+            .flat_map(|entry| entry.principals.iter().map(String::as_str))
+            .collect();
+        assert_eq!(matched, vec!["carol"]);
+
+        // "unknown" matches nothing
+        let matched: Vec<&str> = allowed_signers
+            .iter()
+            .filter(|entry| entry.principals.iter().any(|p| p == "unknown"))
+            .flat_map(|entry| entry.principals.iter().map(String::as_str))
+            .collect();
+        assert!(matched.is_empty());
     }
 }
