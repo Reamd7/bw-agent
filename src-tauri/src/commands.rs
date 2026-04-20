@@ -18,6 +18,19 @@ pub enum UnlockResult {
     TwoFactorRequired { providers: Vec<u8> },
 }
 
+#[derive(serde::Serialize)]
+pub struct GitSigningStatus {
+    pub ssh_program: Option<String>,
+    pub gpg_format: Option<String>,
+    pub commit_gpgsign: bool,
+    /// Whether gpg.ssh.program points to our bw-agent binary.
+    pub program_correct: bool,
+    /// Whether gpg.format == "ssh".
+    pub format_correct: bool,
+    /// Whether commit.gpgsign == true.
+    pub signing_enabled: bool,
+}
+
 /// Spawn background sync + vault unlock after successful login.
 /// Shared by `unlock` and `unlock_with_two_factor` to avoid duplication.
 fn spawn_sync_and_unlock(
@@ -230,12 +243,113 @@ pub async fn unlock_with_two_factor(
     }
 }
 
+#[tauri::command]
+pub async fn get_git_signing_status() -> Result<GitSigningStatus, String> {
+    let ssh_program = git_config_get("gpg.ssh.program").ok();
+    let gpg_format = git_config_get("gpg.format").ok();
+    let commit_gpgsign = git_config_get("commit.gpgsign")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    let program_correct = {
+        let expected = ensure_git_sign_binary();
+        match (&ssh_program, expected) {
+            (Some(program), Ok(expected_path)) => *program == expected_path.display().to_string(),
+            _ => false,
+        }
+    };
+    let format_correct = gpg_format.as_deref() == Some("ssh");
+    let signing_enabled = commit_gpgsign;
+
+    Ok(GitSigningStatus {
+        ssh_program,
+        gpg_format,
+        commit_gpgsign,
+        program_correct,
+        format_correct,
+        signing_enabled,
+    })
+}
+
+#[tauri::command]
+pub async fn configure_git_signing() -> Result<(), String> {
+    let signing_bin = ensure_git_sign_binary()?;
+
+    git_config_set("gpg.ssh.program", &signing_bin.display().to_string())?;
+    git_config_set("gpg.format", "ssh")?;
+    git_config_set("commit.gpgsign", "true")?;
+
+    Ok(())
+}
+
 /// Clear any pending 2FA login state. Call this everywhere the vault is locked.
 fn clear_pending_two_factor(state: &AppState) {
     if let Ok(mut pending) = state.pending_two_factor.lock() {
         if pending.take().is_some() {
             log::debug!("Cleared pending two-factor login state");
         }
+    }
+}
+
+fn git_config_get(key: &str) -> Result<String, String> {
+    let output = std::process::Command::new("git")
+        .args(["config", "--global", "--get", key])
+        .output()
+        .map_err(|e| format!("Failed to run git: {e}"))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        Err(format!("git config --get {key} failed"))
+    }
+}
+
+fn git_config_set(key: &str, value: &str) -> Result<(), String> {
+    let output = std::process::Command::new("git")
+        .args(["config", "--global", key, value])
+        .output()
+        .map_err(|e| format!("Failed to run git: {e}"))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "git config --global {} {} failed: {}",
+            key,
+            value,
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
+/// Find the bw-agent-git-sign(.exe) sidecar sitting next to the desktop binary.
+/// This is the path written to gpg.ssh.program.
+fn ensure_git_sign_binary() -> Result<PathBuf, String> {
+    let current_exe =
+        std::env::current_exe().map_err(|e| format!("Cannot determine executable path: {e}"))?;
+
+    let current_dir = current_exe.parent().ok_or_else(|| {
+        format!(
+            "Executable has no parent directory: {}",
+            current_exe.display()
+        )
+    })?;
+
+    let sidecar_name = if cfg!(windows) {
+        "bw-agent-git-sign.exe"
+    } else {
+        "bw-agent-git-sign"
+    };
+
+    let sidecar_path = current_dir.join(sidecar_name);
+
+    if sidecar_path.exists() {
+        Ok(sidecar_path)
+    } else {
+        Err(format!(
+            "Git signing sidecar not found: {}",
+            sidecar_path.display()
+        ))
     }
 }
 

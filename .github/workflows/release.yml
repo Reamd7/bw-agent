@@ -94,6 +94,23 @@ jobs:
       # follow-up task.
       # -----------------------------------------------------------------------
 
+      - name: Build CLI sidecar
+        shell: bash
+        run: |
+          cargo build --release -p bw-agent --target ${{ matrix.target }}
+          TRIPLE="${{ matrix.target }}"
+          mkdir -p src-tauri/binaries
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            EXT=".exe"
+          else
+            EXT=""
+          fi
+          # Copy as bw-agent-git-sign — the sidecar name Tauri expects.
+          # argv[0] detection routes to the git-sign code path at runtime.
+          cp "target/${TRIPLE}/release/bw-agent${EXT}" "src-tauri/binaries/bw-agent-git-sign-${TRIPLE}${EXT}"
+          echo "--- Sidecar binaries ---"
+          ls -la src-tauri/binaries/
+
       - name: Build Tauri bundles
         uses: tauri-apps/tauri-action@v0
         with:

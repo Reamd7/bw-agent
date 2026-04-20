@@ -240,6 +240,8 @@ fn main() {
             commands::get_config,
             commands::save_config,
             commands::update_lock_mode,
+            commands::get_git_signing_status,
+            commands::configure_git_signing,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
