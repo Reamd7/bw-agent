@@ -254,9 +254,8 @@ pub async fn get_git_signing_status() -> Result<GitSigningStatus, String> {
 
 #[tauri::command]
 pub async fn configure_git_signing() -> Result<(), String> {
-    let exe_path =
-        std::env::current_exe().map_err(|e| format!("Cannot determine executable path: {e}"))?;
-    let program = format!("{} git-sign", exe_path.display());
+    let cli_path = resolve_git_sign_program_path()?;
+    let program = format!("{} git-sign", cli_path.display());
 
     git_config_set("gpg.ssh.program", &program)?;
     git_config_set("gpg.format", "ssh")?;
@@ -303,6 +302,44 @@ fn git_config_set(key: &str, value: &str) -> Result<(), String> {
             String::from_utf8_lossy(&output.stderr)
         ))
     }
+}
+
+fn resolve_git_sign_program_path() -> Result<PathBuf, String> {
+    let current_exe =
+        std::env::current_exe().map_err(|e| format!("Cannot determine executable path: {e}"))?;
+
+    let current_dir = current_exe.parent().ok_or_else(|| {
+        format!(
+            "Executable has no parent directory: {}",
+            current_exe.display()
+        )
+    })?;
+
+    let cli_name = if cfg!(windows) {
+        "bw-agent.exe"
+    } else {
+        "bw-agent"
+    };
+
+    let sibling_cli = current_dir.join(cli_name);
+    if sibling_cli.exists() {
+        return Ok(sibling_cli);
+    }
+
+    // Dev-workspace fallback: target/<profile>/bw-agent(.exe) next to src-tauri target output.
+    if let Some(target_dir) = current_dir.parent() {
+        let target_cli = target_dir.join(cli_name);
+        if target_cli.exists() {
+            return Ok(target_cli);
+        }
+    }
+
+    Err(format!(
+        "Could not locate {} next to desktop executable {}; looked for {}",
+        cli_name,
+        current_exe.display(),
+        sibling_cli.display()
+    ))
 }
 
 /// Background sync + unlock. Runs after login succeeds.
