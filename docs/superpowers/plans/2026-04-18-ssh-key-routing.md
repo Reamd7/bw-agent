@@ -22,7 +22,7 @@
 - Modify: `crates/bw-agent/src/process.rs`
 - Test: inline `#[cfg(test)]` module
 
-- [x] **Step 1: Write failing tests for `ProcessInfo` with `cwd` and `resolve_cwd`**
+- [ ] **Step 1: Write failing tests for `ProcessInfo` with `cwd` and `resolve_cwd`**
 
 Add to `process.rs` test module:
 
@@ -53,12 +53,12 @@ fn test_resolve_cwd_invalid_pid() {
 }
 ```
 
-- [x] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test --lib -p bw-agent -- process::tests::test_process_info_has_cwd`
 Expected: FAIL — struct has no `cwd` field
 
-- [x] **Step 3: Add `cwd` field to `ProcessInfo`**
+- [ ] **Step 3: Add `cwd` field to `ProcessInfo`**
 
 In `process.rs`, change the struct:
 
@@ -75,7 +75,7 @@ Update ALL places that construct `ProcessInfo` to include `cwd`:
 - `resolve_process_chain` pid=0 case: add `cwd: "unknown".to_string()`
 - `query_process_info`: call `resolve_cwd(pid)` and include the result
 
-- [x] **Step 4: Implement `resolve_cwd()`**
+- [ ] **Step 4: Implement `resolve_cwd()`**
 
 Add the function after `resolve_cmdline`:
 
@@ -210,7 +210,7 @@ pub fn resolve_cwd(pid: u32) -> String {
 
 Note: `load_ntdll`, `get_nqip`, `ProcessBasicInformation`, `PEB_PARAMS_OFFSET` are already defined in the file (used by `resolve_cmdline`). The `PARAMS_CWD_OFFSET` is `0x58` for `CurrentDirectory` vs `0x70` for `CommandLine` in `RTL_USER_PROCESS_PARAMETERS`.
 
-- [x] **Step 5: Update `query_process_info` to call `resolve_cwd`**
+- [ ] **Step 5: Update `query_process_info` to call `resolve_cwd`**
 
 Change:
 ```rust
@@ -230,12 +230,12 @@ fn query_process_info(pid: u32) -> ProcessInfo {
 }
 ```
 
-- [x] **Step 6: Run tests to verify they pass**
+- [ ] **Step 6: Run tests to verify they pass**
 
 Run: `cargo test --lib -p bw-agent`
 Expected: ALL PASS (existing 31 tests + 3 new)
 
-- [x] **Step 7: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add crates/bw-agent/src/process.rs
@@ -250,7 +250,7 @@ git commit -m "feat: add cwd field to ProcessInfo and resolve_cwd()"
 - Create: `crates/bw-agent/src/git_context.rs`
 - Modify: `crates/bw-agent/src/lib.rs` (add `pub mod git_context;`)
 
-- [x] **Step 1: Write failing tests for URL normalization**
+- [ ] **Step 1: Write failing tests for URL normalization**
 
 Create `crates/bw-agent/src/git_context.rs`:
 
@@ -548,16 +548,16 @@ mod tests {
 }
 ```
 
-- [x] **Step 2: Register module in `lib.rs`**
+- [ ] **Step 2: Register module in `lib.rs`**
 
 Add `pub mod git_context;` to `crates/bw-agent/src/lib.rs` after the `pub mod config;` line.
 
-- [x] **Step 3: Run tests**
+- [ ] **Step 3: Run tests**
 
 Run: `cargo test --lib -p bw-agent`
 Expected: ALL PASS
 
-- [x] **Step 4: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add crates/bw-agent/src/git_context.rs crates/bw-agent/src/lib.rs
@@ -572,7 +572,7 @@ git commit -m "feat: add git_context module for repo detection and URL normaliza
 - Create: `crates/bw-agent/src/routing.rs`
 - Modify: `crates/bw-agent/src/lib.rs` (add `pub mod routing;`)
 
-- [x] **Step 1: Create `routing.rs` with tests**
+- [ ] **Step 1: Create `routing.rs` with tests**
 
 Create `crates/bw-agent/src/routing.rs`:
 
@@ -904,16 +904,16 @@ mod tests {
 }
 ```
 
-- [x] **Step 2: Register module in `lib.rs`**
+- [ ] **Step 2: Register module in `lib.rs`**
 
 Add `pub mod routing;` to `crates/bw-agent/src/lib.rs`.
 
-- [x] **Step 3: Run tests**
+- [ ] **Step 3: Run tests**
 
 Run: `cargo test --lib -p bw-agent`
 Expected: ALL PASS
 
-- [x] **Step 4: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add crates/bw-agent/src/routing.rs crates/bw-agent/src/lib.rs
@@ -929,7 +929,7 @@ git commit -m "feat: add routing module for SSH key matching and filtering"
 **Files:**
 - Modify: `crates/bw-agent/src/ssh_agent.rs`
 
-- [x] **Step 1: Add `allowed_entry_ids` field to `SshAgentHandler`**
+- [ ] **Step 1: Add `allowed_entry_ids` field to `SshAgentHandler`**
 
 In `ssh_agent.rs`, add to the struct:
 
@@ -949,7 +949,7 @@ pub struct SshAgentHandler<U: crate::UiCallback> {
 
 Update `Clone`, `new`, `with_client_pid` to handle the new field.
 
-- [x] **Step 2: Update `request_identities()` to use routing**
+- [ ] **Step 2: Update `request_identities()` to use routing**
 
 Before the `for entry in &state.entries` loop, add routing logic:
 
@@ -973,7 +973,7 @@ log::info!(
 
 Then change the loop to iterate `routed_entries` instead of `state.entries`.
 
-- [x] **Step 3: Add per-session authorization check in `sign()`**
+- [ ] **Step 3: Add per-session authorization check in `sign()`**
 
 At the start of `sign()`, after `ensure_unlocked`, add:
 
@@ -1019,16 +1019,16 @@ if let Some(allowed_ids) = &self.allowed_entry_ids {
 }
 ```
 
-- [x] **Step 4: Clear `allowed_entry_ids` in `with_client_pid`**
+- [ ] **Step 4: Clear `allowed_entry_ids` in `with_client_pid`**
 
 In `with_client_pid`, reset: `handler.allowed_entry_ids = None;`
 
-- [x] **Step 5: Run tests**
+- [ ] **Step 5: Run tests**
 
 Run: `cargo test --lib -p bw-agent`
 Expected: ALL PASS
 
-- [x] **Step 6: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add crates/bw-agent/src/ssh_agent.rs
@@ -1042,7 +1042,7 @@ git commit -m "feat: integrate SSH key routing into request_identities and sign"
 **Files:**
 - Add: `docs/ssh-key-routing-spec.md` (already exists in worktree)
 
-- [x] **Step 1: Commit spec**
+- [ ] **Step 1: Commit spec**
 
 ```bash
 git add docs/ssh-key-routing-spec.md
@@ -1055,17 +1055,17 @@ git commit -m "docs: add SSH key routing feature specification"
 
 ### Task 6: Full test suite + clippy
 
-- [x] **Step 1: Run all workspace tests**
+- [ ] **Step 1: Run all workspace tests**
 
 Run: `cargo test --lib -p bw-core -p bw-agent`
 Expected: ALL PASS
 
-- [x] **Step 2: Run clippy**
+- [ ] **Step 2: Run clippy**
 
 Run: `cargo clippy --workspace --all-targets -- -D warnings`
 Expected: No warnings
 
-- [x] **Step 3: Final commit if any fixes needed**
+- [ ] **Step 3: Final commit if any fixes needed**
 
 ```bash
 git add -A
