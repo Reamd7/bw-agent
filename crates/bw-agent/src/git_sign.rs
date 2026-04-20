@@ -343,13 +343,18 @@ fn connect_agent() -> anyhow::Result<ssh_agent_lib::blocking::Client<std::os::un
 {
     use std::os::unix::net::UnixStream;
 
-    let socket_path = if let Ok(path) = std::env::var("SSH_AUTH_SOCK") {
-        path
-    } else {
-        let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-            .map_err(|_| anyhow!("SSH_AUTH_SOCK is unset and XDG_RUNTIME_DIR is unavailable"))?;
-        format!("{runtime_dir}/bw-agent.sock")
-    };
+    // Match server's socket resolution order (lib.rs):
+    // 1. BW_SOCKET_PATH (bw-agent specific)
+    // 2. SSH_AUTH_SOCK (standard SSH agent)
+    // 3. $XDG_RUNTIME_DIR/bw-agent.sock (default)
+    let socket_path = std::env::var("BW_SOCKET_PATH")
+        .ok()
+        .or_else(|| std::env::var("SSH_AUTH_SOCK").ok())
+        .unwrap_or_else(|| {
+            let runtime_dir =
+                std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+            format!("{runtime_dir}/bw-agent.sock")
+        });
 
     let stream = UnixStream::connect(&socket_path)
         .with_context(|| format!("failed to connect to SSH agent at {socket_path}"))?;
