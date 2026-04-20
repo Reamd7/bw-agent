@@ -17,7 +17,7 @@
 **Files:**
 - Modify: `crates/bw-agent/src/config.rs`
 
-- [ ] **Step 1: Write failing tests for `is_empty()`**
+- [x] **Step 1: Write failing tests for `is_empty()`**
 
 Add to `crates/bw-agent/src/config.rs` inside `mod tests`:
 
@@ -47,12 +47,12 @@ fn test_is_empty_false_when_base_url_set() {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd .worktrees/deferred-email-setup && cargo test --package bw-agent config::tests::test_is_empty -- --nocapture`
 Expected: compile error — `is_empty` method does not exist
 
-- [ ] **Step 3: Implement `is_empty()`**
+- [x] **Step 3: Implement `is_empty()`**
 
 Add to the `impl Config` block in `crates/bw-agent/src/config.rs`:
 
@@ -64,17 +64,17 @@ pub fn is_empty(&self) -> bool {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd .worktrees/deferred-email-setup && cargo test --package bw-agent config::tests::test_is_empty -- --nocapture`
 Expected: 3 tests PASS
 
-- [ ] **Step 5: Run all existing tests to verify no regression**
+- [x] **Step 5: Run all existing tests to verify no regression**
 
 Run: `cd .worktrees/deferred-email-setup && cargo test --workspace`
 Expected: all tests PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/bw-agent/src/config.rs
@@ -88,7 +88,7 @@ git commit -m "feat(config): add is_empty() method for deferred setup detection"
 **Files:**
 - Modify: `src-tauri/src/main.rs`
 
-- [ ] **Step 1: Remove the validate call and handle missing email**
+- [x] **Step 1: Remove the validate call and handle missing email**
 
 In `src-tauri/src/main.rs`, inside the `.setup(|app| { ... })` closure, replace:
 
@@ -122,12 +122,12 @@ with:
             }
 ```
 
-- [ ] **Step 2: Build to verify compilation**
+- [x] **Step 2: Build to verify compilation**
 
 Run: `cd .worktrees/deferred-email-setup && cargo build --package bw-agent-desktop`
 Expected: compiles successfully
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src-tauri/src/main.rs
@@ -141,7 +141,7 @@ git commit -m "feat(tauri): allow startup without email configured"
 **Files:**
 - Modify: `crates/bw-agent/src/lib.rs`
 
-- [ ] **Step 1: Remove the email bail in `start_agent_with_shared_state`**
+- [x] **Step 1: Remove the email bail in `start_agent_with_shared_state`**
 
 In `crates/bw-agent/src/lib.rs`, in `start_agent_with_shared_state`, replace:
 
@@ -186,17 +186,17 @@ with:
 
 Keep the rest of the function unchanged (api_url, identity_url, proxy logging, etc. all still work because they derive from `config.base_url` which has defaults).
 
-- [ ] **Step 2: Build to verify compilation**
+- [x] **Step 2: Build to verify compilation**
 
 Run: `cd .worktrees/deferred-email-setup && cargo build --workspace`
 Expected: compiles successfully
 
-- [ ] **Step 3: Run all tests**
+- [x] **Step 3: Run all tests**
 
 Run: `cd .worktrees/deferred-email-setup && cargo test --workspace`
 Expected: all tests PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/bw-agent/src/lib.rs
@@ -212,7 +212,7 @@ git commit -m "feat(agent): tolerate missing email in shared state startup"
 **Files:**
 - Modify: `src/lib/store.ts`
 
-- [ ] **Step 1: Add `isSetupComplete` to the store**
+- [x] **Step 1: Add `isSetupComplete` to the store**
 
 In `src/lib/store.ts`, update the `AppStore` interface:
 
@@ -238,7 +238,7 @@ export const [store, setStore] = createStore<AppStore>({
 
 (`true` by default so existing flow isn't broken; LoginPage will set it to `false` when it detects empty config.)
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/lib/store.ts
@@ -254,7 +254,7 @@ git commit -m "feat(store): add isSetupComplete flag for setup flow"
 
 This is the main frontend change. When config has no email, the page shows a multi-step setup flow that progressively reveals fields on the same page.
 
-- [ ] **Step 1: Add setup stage state and logic**
+- [x] **Step 1: Add setup stage state and logic**
 
 At the top of `LoginPage()`, add setup-related signals after existing signals:
 
@@ -268,7 +268,7 @@ At the top of `LoginPage()`, add setup-related signals after existing signals:
   const [savingConfig, setSavingConfig] = createSignal(false);
 ```
 
-- [ ] **Step 2: Update onMount to detect empty config**
+- [x] **Step 2: Update onMount to detect empty config**
 
 Replace the existing `onMount` `try/catch` block inside `LoginPage()`:
 
@@ -314,7 +314,7 @@ Replace the existing `onMount` `try/catch` block inside `LoginPage()`:
 
 The key change: if `config.email` is falsy, set `isSetup(true)` and `setupStage("server")`.
 
-- [ ] **Step 3: Add setup handler functions**
+- [x] **Step 3: Add setup handler functions**
 
 After `handleUnlock` and before `handleTotpSubmit`, add:
 
@@ -369,7 +369,7 @@ After `handleUnlock` and before `handleTotpSubmit`, add:
   };
 ```
 
-- [ ] **Step 4: Add setup UI sections to the JSX**
+- [x] **Step 4: Add setup UI sections to the JSX**
 
 Inside the `<div class="w-full max-w-sm space-y-6">` container, after the header block (which shows "Bitwarden SSH Agent" title) and before the existing password/2FA/cooldown `<Show>` blocks, add setup UI blocks.
 
@@ -456,7 +456,7 @@ Inside the `<div class="w-full max-w-sm space-y-6">` container, after the header
         </Show>
 ```
 
-- [ ] **Step 5: Guard existing password/2FA stages behind `!isSetup()`**
+- [x] **Step 5: Guard existing password/2FA stages behind `!isSetup()`**
 
 Wrap the existing password, 2FA, and cooldown `<Show>` blocks with an additional `!isSetup()` condition. Change:
 
@@ -494,17 +494,17 @@ to:
         <Show when={!isSetup() && stage() === "cooldown"}>
 ```
 
-- [ ] **Step 6: Build frontend to verify**
+- [x] **Step 6: Build frontend to verify**
 
 Run: `cd .worktrees/deferred-email-setup && npx rsbuild build 2>&1 | tail -5` (or the project's build command)
 Expected: builds successfully, no type errors
 
-- [ ] **Step 7: Full workspace build + test**
+- [x] **Step 7: Full workspace build + test**
 
 Run: `cd .worktrees/deferred-email-setup && cargo test --workspace`
 Expected: all tests PASS
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/pages/LoginPage.tsx src/lib/store.ts
@@ -515,17 +515,17 @@ git commit -m "feat(ui): add inline setup flow to LoginPage for first-time users
 
 ### Task 6: Final verification
 
-- [ ] **Step 1: Run full test suite**
+- [x] **Step 1: Run full test suite**
 
 Run: `cd .worktrees/deferred-email-setup && cargo test --workspace`
 Expected: all tests PASS
 
-- [ ] **Step 2: Run clippy**
+- [x] **Step 2: Run clippy**
 
 Run: `cd .worktrees/deferred-email-setup && cargo clippy --workspace --all-targets -- -D warnings`
 Expected: no warnings
 
-- [ ] **Step 3: Verify git log is clean**
+- [x] **Step 3: Verify git log is clean**
 
 Run: `cd .worktrees/deferred-email-setup && git log --oneline main..HEAD`
 Expected: 5 commits in logical order:
