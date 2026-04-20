@@ -101,11 +101,15 @@ jobs:
           TRIPLE="${{ matrix.target }}"
           mkdir -p src-tauri/binaries
           if [ "$RUNNER_OS" = "Windows" ]; then
-            cp "target/${TRIPLE}/release/bw-agent.exe" "src-tauri/binaries/bw-agent-${TRIPLE}.exe"
+            EXT=".exe"
           else
-            cp "target/${TRIPLE}/release/bw-agent" "src-tauri/binaries/bw-agent-${TRIPLE}"
+            EXT=""
           fi
-          echo "--- Sidecar binary ---"
+          cp "target/${TRIPLE}/release/bw-agent${EXT}" "src-tauri/binaries/bw-agent-${TRIPLE}${EXT}"
+          # Hardlink for gpg.ssh.program — git calls it as a single executable,
+          # so we use argv[0] detection instead of passing arguments.
+          ln "src-tauri/binaries/bw-agent-${TRIPLE}${EXT}" "src-tauri/binaries/bw-agent-git-sign-${TRIPLE}${EXT}"
+          echo "--- Sidecar binaries ---"
           ls -la src-tauri/binaries/
 
       - name: Build Tauri bundles

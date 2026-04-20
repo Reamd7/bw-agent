@@ -23,6 +23,12 @@ pub struct GitSigningStatus {
     pub ssh_program: Option<String>,
     pub gpg_format: Option<String>,
     pub commit_gpgsign: bool,
+    /// Whether gpg.ssh.program points to our bw-agent binary.
+    pub program_correct: bool,
+    /// Whether gpg.format == "ssh".
+    pub format_correct: bool,
+    /// Whether commit.gpgsign == true.
+    pub signing_enabled: bool,
 }
 
 /// Spawn background sync + vault unlock after successful login.
@@ -245,19 +251,31 @@ pub async fn get_git_signing_status() -> Result<GitSigningStatus, String> {
         .map(|v| v == "true")
         .unwrap_or(false);
 
+    let program_correct = {
+        let expected = ensure_git_sign_binary();
+        match (&ssh_program, expected) {
+            (Some(program), Ok(expected_path)) => *program == expected_path.display().to_string(),
+            _ => false,
+        }
+    };
+    let format_correct = gpg_format.as_deref() == Some("ssh");
+    let signing_enabled = commit_gpgsign;
+
     Ok(GitSigningStatus {
         ssh_program,
         gpg_format,
         commit_gpgsign,
+        program_correct,
+        format_correct,
+        signing_enabled,
     })
 }
 
 #[tauri::command]
 pub async fn configure_git_signing() -> Result<(), String> {
-    let cli_path = resolve_git_sign_program_path()?;
-    let program = format!("{} git-sign", cli_path.display());
+    let signing_bin = ensure_git_sign_binary()?;
 
-    git_config_set("gpg.ssh.program", &program)?;
+    git_config_set("gpg.ssh.program", &signing_bin.display().to_string())?;
     git_config_set("gpg.format", "ssh")?;
     git_config_set("commit.gpgsign", "true")?;
 
@@ -304,7 +322,10 @@ fn git_config_set(key: &str, value: &str) -> Result<(), String> {
     }
 }
 
-fn resolve_git_sign_program_path() -> Result<PathBuf, String> {
+/// Find bw-agent(.exe) and return the path to a hardlink named
+/// bw-agent-git-sign(.exe) sitting next to it (creating the hardlink if
+/// needed).  This link is what gets written to gpg.ssh.program.
+fn ensure_git_sign_binary() -> Result<PathBuf, String> {
     let current_exe =
         std::env::current_exe().map_err(|e| format!("Cannot determine executable path: {e}"))?;
 
@@ -315,31 +336,54 @@ fn resolve_git_sign_program_path() -> Result<PathBuf, String> {
         )
     })?;
 
-    let cli_name = if cfg!(windows) {
-        "bw-agent.exe"
+    let (base_name, link_name) = if cfg!(windows) {
+        ("bw-agent.exe", "bw-agent-git-sign.exe")
     } else {
-        "bw-agent"
+        ("bw-agent", "bw-agent-git-sign")
     };
 
-    let sibling_cli = current_dir.join(cli_name);
-    if sibling_cli.exists() {
-        return Ok(sibling_cli);
+    // Look for bw-agent(.exe) as a sibling (sidecar / same dir).
+    let src_path = current_dir.join(base_name);
+    let link_path = current_dir.join(link_name);
+
+    // If the hardlink already exists, just return it.
+    if link_path.exists() {
+        return Ok(link_path);
     }
 
-    // Dev-workspace fallback: target/<profile>/bw-agent(.exe) next to src-tauri target output.
-    if let Some(target_dir) = current_dir.parent() {
-        let target_cli = target_dir.join(cli_name);
-        if target_cli.exists() {
-            return Ok(target_cli);
+    // Try dev-workspace fallback: target/<profile>/bw-agent(.exe)
+    let src_path = if src_path.exists() {
+        src_path
+    } else if let Some(target_dir) = current_dir.parent() {
+        let fallback = target_dir.join(base_name);
+        if fallback.exists() {
+            fallback
+        } else {
+            return Err(format!(
+                "Could not locate {} next to desktop executable or in parent target/ directory",
+                base_name
+            ));
         }
-    }
+    } else {
+        return Err(format!(
+            "Could not locate {} next to desktop executable {}",
+            base_name,
+            current_exe.display()
+        ));
+    };
 
-    Err(format!(
-        "Could not locate {} next to desktop executable {}; looked for {}",
-        cli_name,
-        current_exe.display(),
-        sibling_cli.display()
-    ))
+    // Create hardlink. On Windows this uses fs::hard_link (which calls
+    // CreateHardLink). On Unix it calls link().
+    std::fs::hard_link(&src_path, &link_path).map_err(|e| {
+        format!(
+            "Failed to create hardlink {} -> {}: {e}",
+            link_path.display(),
+            src_path.display()
+        )
+    })?;
+
+    log::info!("Created git-sign hardlink: {}", link_path.display());
+    Ok(link_path)
 }
 
 /// Background sync + unlock. Runs after login succeeds.

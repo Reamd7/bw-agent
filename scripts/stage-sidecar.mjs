@@ -9,7 +9,7 @@
 // If target-triple is omitted, defaults to the host triple from `rustc`.
 
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, copyFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, copyFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -47,3 +47,13 @@ mkdirSync(binariesDir, { recursive: true });
 const dstPath = join(binariesDir, dstName);
 copyFileSync(srcPath, dstPath);
 console.log(`Staged sidecar: ${dstPath}`);
+
+// Create a hardlink named bw-agent-git-sign-<triple> for gpg.ssh.program.
+// Git calls gpg.ssh.program as a single executable (no argument splitting),
+// so we need a separate entry point that detects "git-sign" in argv[0].
+const signDstName = `bw-agent-git-sign-${triple}${ext}`;
+const signDstPath = join(binariesDir, signDstName);
+if (!existsSync(signDstPath)) {
+  linkSync(dstPath, signDstPath);
+  console.log(`Staged git-sign link: ${signDstPath}`);
+}

@@ -22,6 +22,62 @@ struct AllowedSigner {
     public_key: PublicKey,
 }
 
+/// Entry point when invoked via argv[0] detection (e.g. as `bw-agent-git-sign`).
+/// Git calls: `<program> -Y <action> -n git -f <keyfile> [options] <datafile>`
+pub fn run_from_args(args: &[String]) -> anyhow::Result<()> {
+    let mut action = None;
+    let mut namespace = None;
+    let mut key_file = None;
+    let mut principal = None;
+    let mut signature_file = None;
+    let mut data_file = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-Y" => {
+                i += 1;
+                action = args.get(i).cloned();
+            }
+            "-n" => {
+                i += 1;
+                namespace = args.get(i).cloned();
+            }
+            "-f" => {
+                i += 1;
+                key_file = args.get(i).cloned();
+            }
+            "-I" => {
+                i += 1;
+                principal = args.get(i).cloned();
+            }
+            "-s" => {
+                i += 1;
+                signature_file = args.get(i).cloned();
+            }
+            "-U" => { /* use-agent flag, ignored */ }
+            "-O" => {
+                i += 1; // skip option value
+            }
+            other if !other.starts_with('-') => {
+                data_file = Some(other.to_string());
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    let action = action.ok_or_else(|| anyhow!("missing -Y action"))?;
+    run(
+        &action,
+        namespace.as_deref(),
+        key_file.as_deref(),
+        principal.as_deref(),
+        signature_file.as_deref(),
+        data_file.as_deref(),
+    )
+}
+
 /// Entry point for the git-sign subcommand.
 pub fn run(
     action: &str,

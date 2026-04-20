@@ -40,6 +40,21 @@ enum Commands {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
+
+    // If invoked as a binary whose name ends with "git-sign" (e.g. via a
+    // hardlink / symlink named bw-agent-git-sign), skip clap and go straight
+    // to the signing code path.  Git calls gpg.ssh.program as:
+    //   <program> -Y <action> -n git -f <keyfile> [options] <datafile>
+    let argv0 = std::env::args().next().unwrap_or_default();
+    let bin_name = std::path::Path::new(&argv0)
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy();
+
+    if bin_name.ends_with("git-sign") {
+        return bw_agent::git_sign::run_from_args(&std::env::args().skip(1).collect::<Vec<_>>());
+    }
+
     let cli = Cli::parse();
 
     match cli.command {

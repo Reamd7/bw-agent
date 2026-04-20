@@ -154,6 +154,34 @@ export default function SettingsPage() {
     }
   };
 
+  const allCorrect = () =>
+    gitSigningStatus()?.program_correct &&
+    gitSigningStatus()?.format_correct &&
+    gitSigningStatus()?.signing_enabled;
+
+  const signChecks = () => (
+    <ul class="mt-2 space-y-1 text-sm">
+      <li class="flex items-center gap-1.5 flex-wrap">
+        <span>{gitSigningStatus()?.program_correct ? "✅" : "❌"}</span>
+        <span>gpg.ssh.program</span>
+        <Show when={gitSigningStatus()?.program_correct && gitSigningStatus()?.ssh_program}>
+          <span class="break-all">({gitSigningStatus()?.ssh_program})</span>
+        </Show>
+        <Show when={!gitSigningStatus()?.program_correct && gitSigningStatus()?.ssh_program != null}>
+          <span class="text-xs opacity-75 break-all">(current: {gitSigningStatus()?.ssh_program})</span>
+        </Show>
+      </li>
+      <li class="flex items-center gap-1.5">
+        <span>{gitSigningStatus()?.format_correct ? "✅" : "❌"}</span>
+        <span>gpg.format = ssh</span>
+      </li>
+      <li class="flex items-center gap-1.5">
+        <span>{gitSigningStatus()?.signing_enabled ? "✅" : "❌"}</span>
+        <span>commit.gpgsign = true</span>
+      </li>
+    </ul>
+  );
+
   const updateField = (field: keyof Config, value: string | number | null) => {
     setConfig((prev) => ({ ...prev, [field]: value }));
   };
@@ -371,7 +399,7 @@ export default function SettingsPage() {
 
                   <div class="sm:col-span-6">
                     <Show
-                      when={gitSigningStatus()?.ssh_program != null && gitSigningStatus()?.gpg_format === "ssh" && gitSigningStatus()?.commit_gpgsign}
+                      when={allCorrect()}
                       fallback={
                         <div class="rounded-md bg-yellow-50 p-4">
                           <div class="flex">
@@ -381,9 +409,8 @@ export default function SettingsPage() {
                               </svg>
                             </div>
                             <div class="ml-3 flex-1">
-                              <p class="text-sm text-yellow-700">
-                                Git SSH signing is not configured.
-                              </p>
+                              <p class="text-sm font-medium text-yellow-800">Git SSH signing is not fully configured</p>
+                              {signChecks()}
                               <div class="mt-3">
                                 <button
                                   type="button"
@@ -407,12 +434,8 @@ export default function SettingsPage() {
                             </svg>
                           </div>
                           <div class="ml-3">
-                            <p class="text-sm font-medium text-green-800">
-                              Git SSH signing is configured
-                            </p>
-                            <p class="mt-1 text-sm text-green-700">
-                              gpg.ssh.program: {gitSigningStatus()?.ssh_program}
-                            </p>
+                            <p class="text-sm font-medium text-green-800">Git SSH signing is configured</p>
+                            {signChecks()}
                           </div>
                         </div>
                       </div>

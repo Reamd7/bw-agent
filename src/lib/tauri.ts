@@ -58,6 +58,12 @@ export interface GitSigningStatus {
   ssh_program: string | null;
   gpg_format: string | null;
   commit_gpgsign: boolean;
+  /** Whether gpg.ssh.program points to our bw-agent binary */
+  program_correct: boolean;
+  /** Whether gpg.format == "ssh" */
+  format_correct: boolean;
+  /** Whether commit.gpgsign == true */
+  signing_enabled: boolean;
 }
 
 export const unlock = (password: string) => invoke<UnlockResult>("unlock", { password });
