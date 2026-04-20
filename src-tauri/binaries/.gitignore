@@ -1,0 +1,4 @@
+# Sidecar binaries are built and staged here by CI / local build scripts.
+# They must not be committed — they are platform-specific build artifacts.
+*
+!.gitignore

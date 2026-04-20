@@ -6,15 +6,15 @@
   "build": {
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm build && pnpm stage-sidecar",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "bw-agent",
-        "visible": false,
+        "title": "Bitwarden Agent",
+        "visible": true,
         "width": 480,
         "height": 640,
         "resizable": true,
@@ -38,6 +38,7 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "externalBin": ["binaries/bw-agent-git-sign"]
   }
 }

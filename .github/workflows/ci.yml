@@ -39,6 +39,9 @@ jobs:
           shared-key: ci-check
           cache-targets: 'false'
 
+      - name: Stage sidecar binaries
+        run: node scripts/stage-sidecar.mjs
+
       - name: pnpm run check (cargo fmt + cargo clippy)
         run: pnpm run check
 
@@ -62,6 +65,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ci-test-${{ matrix.os }}
+
+      - name: Stage sidecar binaries
+        run: node scripts/stage-sidecar.mjs
 
       - name: pnpm run test (cargo test --workspace)
         run: pnpm run test

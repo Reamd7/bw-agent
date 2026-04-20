@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "rsbuild dev",
     "build": "rsbuild build",
+    "stage-sidecar": "node scripts/stage-sidecar.mjs",
     "tauri": "tauri",
+    "tauri:dev": "pnpm stage-sidecar && tauri dev",
     "test": "cargo test --workspace",
     "test:unit": "echo \"[placeholder] frontend unit tests not yet implemented (owned by task2)\" && exit 0",
     "check": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings",
