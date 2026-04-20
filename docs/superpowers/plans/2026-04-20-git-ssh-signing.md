@@ -34,7 +34,7 @@
 **Files:**
 - Modify: `crates/bw-agent/Cargo.toml`
 
-- [x] **Step 1: Add clap to Cargo.toml**
+- [ ] **Step 1: Add clap to Cargo.toml**
 
 In `crates/bw-agent/Cargo.toml`, add after the `rusqlite` line:
 
@@ -42,12 +42,12 @@ In `crates/bw-agent/Cargo.toml`, add after the `rusqlite` line:
 clap = { version = "4", features = ["derive"] }
 ```
 
-- [x] **Step 2: Verify it compiles**
+- [ ] **Step 2: Verify it compiles**
 
 Run: `cargo check --package bw-agent`
 Expected: Compiles successfully (clap imported but unused)
 
-- [x] **Step 3: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add crates/bw-agent/Cargo.toml
@@ -62,7 +62,7 @@ git commit -m "chore: add clap dependency for CLI subcommands"
 - Modify: `crates/bw-agent/src/main.rs`
 - Modify: `crates/bw-agent/src/lib.rs`
 
-- [x] **Step 1: Add `git_sign` module to lib.rs**
+- [ ] **Step 1: Add `git_sign` module to lib.rs**
 
 In `crates/bw-agent/src/lib.rs`, add after `pub mod git_context;`:
 
@@ -70,7 +70,7 @@ In `crates/bw-agent/src/lib.rs`, add after `pub mod git_context;`:
 pub mod git_sign;
 ```
 
-- [x] **Step 2: Rewrite main.rs with clap**
+- [ ] **Step 2: Rewrite main.rs with clap**
 
 Replace the entire content of `crates/bw-agent/src/main.rs` with:
 
@@ -145,7 +145,7 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-- [x] **Step 3: Create stub git_sign.rs**
+- [ ] **Step 3: Create stub git_sign.rs**
 
 Create `crates/bw-agent/src/git_sign.rs` with:
 
@@ -165,13 +165,13 @@ pub fn run(
 }
 ```
 
-- [x] **Step 4: Verify it compiles and existing behavior preserved**
+- [ ] **Step 4: Verify it compiles and existing behavior preserved**
 
 Run: `cargo check --package bw-agent`
 Run: `cargo test --package bw-agent`
 Expected: All compiles, all existing tests pass
 
-- [x] **Step 5: Test CLI subcommand parsing**
+- [ ] **Step 5: Test CLI subcommand parsing**
 
 Run: `cargo run --package bw-agent -- git-sign -Y sign -n git -f NUL NUL` (Windows)
 Or: `cargo run --package bw-agent -- git-sign -Y sign -n git -f /dev/null /dev/null` (Unix)
@@ -180,7 +180,7 @@ Expected: The stub outputs `error: unknown action: sign` and exits with code 1
 Run: `cargo run --package bw-agent -- --help`
 Expected: Shows help with `git-sign` subcommand listed
 
-- [x] **Step 6: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add crates/bw-agent/src/main.rs crates/bw-agent/src/lib.rs crates/bw-agent/src/git_sign.rs
@@ -194,7 +194,7 @@ git commit -m "feat: add clap CLI with git-sign subcommand stub"
 **Files:**
 - Modify: `crates/bw-agent/src/git_sign.rs`
 
-- [x] **Step 1: Write test for SSHSIG construction**
+- [ ] **Step 1: Write test for SSHSIG construction**
 
 Add to `crates/bw-agent/src/git_sign.rs`:
 
@@ -250,12 +250,12 @@ mod tests {
 }
 ```
 
-- [x] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test --package bw-agent -- git_sign`
 Expected: Fails — `agent_socket_path` not yet defined
 
-- [x] **Step 3: Implement the sign action**
+- [ ] **Step 3: Implement the sign action**
 
 Replace the entire content of `crates/bw-agent/src/git_sign.rs` with the full implementation:
 
@@ -492,17 +492,17 @@ pub fn run(
 
 **IMPORTANT NOTE for Windows implementation**: The Windows named pipe client in ssh-agent-lib may require using `tokio` or a custom `Read+Write` impl for named pipes. The implementer should verify the blocking client works with Windows named pipes, and if not, use `tokio::net::windows::named_pipe` with a small async runtime (`#[tokio::main]`) for the `git-sign` subcommand. The core logic (SSHSIG construction) remains the same either way.
 
-- [x] **Step 4: Run tests**
+- [ ] **Step 4: Run tests**
 
 Run: `cargo test --package bw-agent -- git_sign`
 Expected: Tests pass
 
-- [x] **Step 5: Verify compilation**
+- [ ] **Step 5: Verify compilation**
 
 Run: `cargo check --package bw-agent`
 Expected: Compiles successfully
 
-- [x] **Step 6: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add crates/bw-agent/src/git_sign.rs
@@ -518,7 +518,7 @@ git commit -m "feat: implement SSHSIG sign via SSH agent client"
 **Files:**
 - Modify: `crates/bw-agent/src/git_sign.rs`
 
-- [x] **Step 1: Write tests for SSHSIG parsing**
+- [ ] **Step 1: Write tests for SSHSIG parsing**
 
 Add to the `tests` module in `git_sign.rs`:
 
@@ -571,12 +571,12 @@ fn test_key_type_string() {
 }
 ```
 
-- [x] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test --package bw-agent -- git_sign`
 Expected: Fails — helper functions not defined
 
-- [x] **Step 3: Implement helper functions and verify actions**
+- [ ] **Step 3: Implement helper functions and verify actions**
 
 Add these helper functions to `git_sign.rs` (outside any module):
 
@@ -741,17 +741,17 @@ fn do_check_novalidate(
 }
 ```
 
-- [x] **Step 4: Run all tests**
+- [ ] **Step 4: Run all tests**
 
 Run: `cargo test --package bw-agent -- git_sign`
 Expected: All tests pass
 
-- [x] **Step 5: Run full workspace check**
+- [ ] **Step 5: Run full workspace check**
 
 Run: `cargo check --workspace`
 Expected: Compiles successfully
 
-- [x] **Step 6: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add crates/bw-agent/src/git_sign.rs
@@ -768,7 +768,7 @@ git commit -m "feat: implement verify, find-principals, check-novalidate"
 - Modify: `src-tauri/src/commands.rs`
 - Modify: `src-tauri/src/main.rs`
 
-- [x] **Step 1: Add GitSigningStatus struct and commands to commands.rs**
+- [ ] **Step 1: Add GitSigningStatus struct and commands to commands.rs**
 
 Add to the top of `src-tauri/src/commands.rs` (after the existing structs):
 
@@ -844,7 +844,7 @@ fn git_config_set(key: &str, value: &str) -> Result<(), String> {
 }
 ```
 
-- [x] **Step 2: Register new commands in main.rs**
+- [ ] **Step 2: Register new commands in main.rs**
 
 In `src-tauri/src/main.rs`, add to the `invoke_handler` list (after `commands::update_lock_mode`):
 
@@ -853,12 +853,12 @@ commands::get_git_signing_status,
 commands::configure_git_signing,
 ```
 
-- [x] **Step 3: Verify compilation**
+- [ ] **Step 3: Verify compilation**
 
 Run: `cargo check --workspace`
 Expected: Compiles successfully
 
-- [x] **Step 4: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add src-tauri/src/commands.rs src-tauri/src/main.rs
@@ -874,7 +874,7 @@ git commit -m "feat: add get_git_signing_status and configure_git_signing comman
 **Files:**
 - Modify: `src/lib/tauri.ts`
 
-- [x] **Step 1: Add GitSigningStatus interface and wrappers**
+- [ ] **Step 1: Add GitSigningStatus interface and wrappers**
 
 Add to `src/lib/tauri.ts` (after the existing interfaces, before the invoke wrappers):
 
@@ -893,12 +893,12 @@ export const getGitSigningStatus = () => invoke<GitSigningStatus>("get_git_signi
 export const configureGitSigning = () => invoke<void>("configure_git_signing");
 ```
 
-- [x] **Step 2: Verify no TypeScript errors**
+- [ ] **Step 2: Verify no TypeScript errors**
 
 Run: `pnpm build`
 Expected: Builds successfully
 
-- [x] **Step 3: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add src/lib/tauri.ts
@@ -912,7 +912,7 @@ git commit -m "feat: add GitSigningStatus type and Tauri invoke wrappers"
 **Files:**
 - Modify: `src/pages/SettingsPage.tsx`
 
-- [x] **Step 1: Add imports and state signals**
+- [ ] **Step 1: Add imports and state signals**
 
 Add `getGitSigningStatus, configureGitSigning, type GitSigningStatus` to the existing import from `"../lib/tauri"`.
 
@@ -923,7 +923,7 @@ const [gitSigningStatus, setGitSigningStatus] = createSignal<GitSigningStatus | 
 const [configuring, setConfiguring] = createSignal(false);
 ```
 
-- [x] **Step 2: Fetch git signing status on mount**
+- [ ] **Step 2: Fetch git signing status on mount**
 
 Inside the `onMount` callback, after the existing `getConfig` call, add:
 
@@ -936,7 +936,7 @@ try {
 }
 ```
 
-- [x] **Step 3: Add configure handler**
+- [ ] **Step 3: Add configure handler**
 
 Add after `handlePresetChange`:
 
@@ -959,7 +959,7 @@ const handleConfigureGitSigning = async () => {
 };
 ```
 
-- [x] **Step 4: Add "Git Signing" section to the form**
+- [ ] **Step 4: Add "Git Signing" section to the form**
 
 In the `<form>` element, after the Network section's proxy input `<div>` (the one with `sm:col-span-6` wrapping the proxy field), and before the closing `</div>` of the grid, add:
 
@@ -1022,12 +1022,12 @@ In the `<form>` element, after the Network section's proxy input `<div>` (the on
 </div>
 ```
 
-- [x] **Step 5: Verify build**
+- [ ] **Step 5: Verify build**
 
 Run: `pnpm build`
 Expected: Builds successfully
 
-- [x] **Step 6: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/pages/SettingsPage.tsx
@@ -1042,22 +1042,22 @@ git commit -m "feat: add Git Signing section to settings page"
 
 **Files:** None (testing only)
 
-- [x] **Step 1: Run full workspace check**
+- [ ] **Step 1: Run full workspace check**
 
 Run: `cargo check --workspace`
 Expected: All compiles
 
-- [x] **Step 2: Run all tests**
+- [ ] **Step 2: Run all tests**
 
 Run: `cargo test --workspace`
 Expected: All tests pass
 
-- [x] **Step 3: Run clippy**
+- [ ] **Step 3: Run clippy**
 
 Run: `cargo clippy --workspace --all-targets -- -D warnings`
 Expected: No warnings
 
-- [x] **Step 4: Test CLI help**
+- [ ] **Step 4: Test CLI help**
 
 Run: `cargo run --package bw-agent -- --help`
 Expected: Shows both default behavior and `git-sign` subcommand
@@ -1065,7 +1065,7 @@ Expected: Shows both default behavior and `git-sign` subcommand
 Run: `cargo run --package bw-agent -- git-sign -Y sign`
 Expected: Error about missing arguments, exit code 1
 
-- [x] **Step 5: Verify Tauri commands via pnpm dev**
+- [ ] **Step 5: Verify Tauri commands via pnpm dev**
 
 Run: `pnpm tauri dev`
 
@@ -1083,12 +1083,12 @@ In the running app:
 9. Run `git config --global --get commit.gpgsign`
    Expected: `true`
 
-- [x] **Step 6: Verify git_sign unit tests cover SSHSIG roundtrip**
+- [ ] **Step 6: Verify git_sign unit tests cover SSHSIG roundtrip**
 
 Run: `cargo test --package bw-agent -- git_sign`
 Expected: All git_sign tests pass, including `test_build_sshsig_roundtrip`, `test_sshsig_parse_valid_pem`, `test_parse_allowed_signers`, `test_key_type_string`
 
-- [x] **Step 7: Final commit (if any fixes needed)**
+- [ ] **Step 7: Final commit (if any fixes needed)**
 
 ```bash
 git add -A
