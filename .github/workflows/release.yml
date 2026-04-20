@@ -94,6 +94,20 @@ jobs:
       # follow-up task.
       # -----------------------------------------------------------------------
 
+      - name: Build CLI sidecar
+        shell: bash
+        run: |
+          cargo build --release -p bw-agent --target ${{ matrix.target }}
+          TRIPLE="${{ matrix.target }}"
+          mkdir -p src-tauri/binaries
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp "target/${TRIPLE}/release/bw-agent.exe" "src-tauri/binaries/bw-agent-${TRIPLE}.exe"
+          else
+            cp "target/${TRIPLE}/release/bw-agent" "src-tauri/binaries/bw-agent-${TRIPLE}"
+          fi
+          echo "--- Sidecar binary ---"
+          ls -la src-tauri/binaries/
+
       - name: Build Tauri bundles
         uses: tauri-apps/tauri-action@v0
         with:
