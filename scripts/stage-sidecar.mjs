@@ -39,8 +39,19 @@ for (const candidate of candidates) {
 }
 
 if (!srcPath) {
-  console.error(`Error: ${srcName} not found. Run 'cargo build -p bw-agent' first.`);
-  process.exit(1);
+  console.log(`bw-agent binary not found, building...`);
+  execSync("cargo build -p bw-agent", { stdio: "inherit" });
+  // Re-check after build
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      srcPath = candidate;
+      break;
+    }
+  }
+  if (!srcPath) {
+    console.error(`Error: ${srcName} still not found after build.`);
+    process.exit(1);
+  }
 }
 
 mkdirSync(binariesDir, { recursive: true });
