@@ -105,10 +105,9 @@ jobs:
           else
             EXT=""
           fi
-          cp "target/${TRIPLE}/release/bw-agent${EXT}" "src-tauri/binaries/bw-agent-${TRIPLE}${EXT}"
-          # Hardlink for gpg.ssh.program — git calls it as a single executable,
-          # so we use argv[0] detection instead of passing arguments.
-          ln "src-tauri/binaries/bw-agent-${TRIPLE}${EXT}" "src-tauri/binaries/bw-agent-git-sign-${TRIPLE}${EXT}"
+          # Copy as bw-agent-git-sign — the sidecar name Tauri expects.
+          # argv[0] detection routes to the git-sign code path at runtime.
+          cp "target/${TRIPLE}/release/bw-agent${EXT}" "src-tauri/binaries/bw-agent-git-sign-${TRIPLE}${EXT}"
           echo "--- Sidecar binaries ---"
           ls -la src-tauri/binaries/
 

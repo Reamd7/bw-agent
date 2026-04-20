@@ -39,6 +39,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/bw-agent", "binaries/bw-agent-git-sign"]
+    "externalBin": ["binaries/bw-agent-git-sign"]
   }
 }

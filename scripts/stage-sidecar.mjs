@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Stages the bw-agent CLI binary as a Tauri sidecar.
-// Run after `cargo build` — copies the binary to src-tauri/binaries/ with
-// the target-triple suffix that Tauri's externalBin expects.
+// Stages the bw-agent CLI binary as a Tauri sidecar for git signing.
+// The binary is copied as bw-agent-git-sign-<triple> so that argv[0]
+// detection routes to the git-sign code path at runtime.
 //
 // Usage:
 //   node scripts/stage-sidecar.mjs [target-triple]
@@ -9,7 +9,7 @@
 // If target-triple is omitted, defaults to the host triple from `rustc`.
 
 import { execSync } from "node:child_process";
-import { existsSync, linkSync, mkdirSync, copyFileSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -20,7 +20,7 @@ const isWindows = triple.includes("windows");
 const ext = isWindows ? ".exe" : "";
 
 const srcName = `bw-agent${ext}`;
-const dstName = `bw-agent-${triple}${ext}`;
+const dstName = `bw-agent-git-sign-${triple}${ext}`;
 
 // Check debug first, then release
 const candidates = [
@@ -58,13 +58,3 @@ mkdirSync(binariesDir, { recursive: true });
 const dstPath = join(binariesDir, dstName);
 copyFileSync(srcPath, dstPath);
 console.log(`Staged sidecar: ${dstPath}`);
-
-// Create a hardlink named bw-agent-git-sign-<triple> for gpg.ssh.program.
-// Git calls gpg.ssh.program as a single executable (no argument splitting),
-// so we need a separate entry point that detects "git-sign" in argv[0].
-const signDstName = `bw-agent-git-sign-${triple}${ext}`;
-const signDstPath = join(binariesDir, signDstName);
-if (!existsSync(signDstPath)) {
-  linkSync(dstPath, signDstPath);
-  console.log(`Staged git-sign link: ${signDstPath}`);
-}

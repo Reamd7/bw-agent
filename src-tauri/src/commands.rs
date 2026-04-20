@@ -322,9 +322,8 @@ fn git_config_set(key: &str, value: &str) -> Result<(), String> {
     }
 }
 
-/// Find bw-agent(.exe) and return the path to a hardlink named
-/// bw-agent-git-sign(.exe) sitting next to it (creating the hardlink if
-/// needed).  This link is what gets written to gpg.ssh.program.
+/// Find the bw-agent-git-sign(.exe) sidecar sitting next to the desktop binary.
+/// This is the path written to gpg.ssh.program.
 fn ensure_git_sign_binary() -> Result<PathBuf, String> {
     let current_exe =
         std::env::current_exe().map_err(|e| format!("Cannot determine executable path: {e}"))?;
@@ -336,54 +335,22 @@ fn ensure_git_sign_binary() -> Result<PathBuf, String> {
         )
     })?;
 
-    let (base_name, link_name) = if cfg!(windows) {
-        ("bw-agent.exe", "bw-agent-git-sign.exe")
+    let sidecar_name = if cfg!(windows) {
+        "bw-agent-git-sign.exe"
     } else {
-        ("bw-agent", "bw-agent-git-sign")
+        "bw-agent-git-sign"
     };
 
-    // Look for bw-agent(.exe) as a sibling (sidecar / same dir).
-    let src_path = current_dir.join(base_name);
-    let link_path = current_dir.join(link_name);
+    let sidecar_path = current_dir.join(sidecar_name);
 
-    // If the hardlink already exists, just return it.
-    if link_path.exists() {
-        return Ok(link_path);
+    if sidecar_path.exists() {
+        Ok(sidecar_path)
+    } else {
+        Err(format!(
+            "Git signing sidecar not found: {}",
+            sidecar_path.display()
+        ))
     }
-
-    // Try dev-workspace fallback: target/<profile>/bw-agent(.exe)
-    let src_path = if src_path.exists() {
-        src_path
-    } else if let Some(target_dir) = current_dir.parent() {
-        let fallback = target_dir.join(base_name);
-        if fallback.exists() {
-            fallback
-        } else {
-            return Err(format!(
-                "Could not locate {} next to desktop executable or in parent target/ directory",
-                base_name
-            ));
-        }
-    } else {
-        return Err(format!(
-            "Could not locate {} next to desktop executable {}",
-            base_name,
-            current_exe.display()
-        ));
-    };
-
-    // Create hardlink. On Windows this uses fs::hard_link (which calls
-    // CreateHardLink). On Unix it calls link().
-    std::fs::hard_link(&src_path, &link_path).map_err(|e| {
-        format!(
-            "Failed to create hardlink {} -> {}: {e}",
-            link_path.display(),
-            src_path.display()
-        )
-    })?;
-
-    log::info!("Created git-sign hardlink: {}", link_path.display());
-    Ok(link_path)
 }
 
 /// Background sync + unlock. Runs after login succeeds.
