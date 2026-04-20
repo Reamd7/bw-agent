@@ -70,6 +70,18 @@ const parseSshCmdline = (processChain: ProcessInfo[]): SshInfo => {
     return { operation: "unknown", target: "unknown" };
   }
 
+  // Detect git-sign: bw-agent-git-sign in the process chain indicates a git
+  // commit signing operation, not an SSH connection.
+  for (const proc of processChain) {
+    const exeName = extractExeName(proc.exe).toLowerCase();
+    if (exeName.includes("git-sign")) {
+      // Extract -Y action (sign, verify, find-principals, etc.)
+      const actionMatch = proc.cmdline.match(/-Y\s+(\S+)/);
+      const action = actionMatch ? actionMatch[1] : "sign";
+      return { operation: `git ${action}`, target: "commit" };
+    }
+  }
+
   const sshNode = processChain[processChain.length - 1];
   const cmdline = sshNode.cmdline;
 
