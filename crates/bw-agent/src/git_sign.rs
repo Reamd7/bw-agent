@@ -154,9 +154,7 @@ fn verify_action(
     let principal =
         principal.ok_or_else(|| anyhow!("missing required principal (-I/--principal)"))?;
     let sshsig = read_signature(required_path(signature_file, "-s/--signature-file")?)?;
-    let data_path = required_path(data_file, "data file")?;
-    let data = fs::read(&data_path)
-        .with_context(|| format!("failed to read data file {}", data_path.display()))?;
+    let data = read_data_or_stdin(data_file)?;
     let allowed_signers = parse_allowed_signers_file(&allowed_signers_path)?;
 
     let signer = allowed_signers
@@ -195,12 +193,30 @@ fn find_principals_action(
 ) -> anyhow::Result<()> {
     let allowed_signers_path = required_path(key_file, "-f/--key-file")?;
     let sshsig = read_signature(required_path(signature_file, "-s/--signature-file")?)?;
-    let data_path = required_path(data_file, "data file")?;
-    let data = fs::read(&data_path)
-        .with_context(|| format!("failed to read data file {}", data_path.display()))?;
     let allowed_signers = parse_allowed_signers_file(&allowed_signers_path)?;
 
-    let matched_principals = matching_principals(namespace, &data, &sshsig, &allowed_signers);
+    // ssh-keygen -Y find-principals does NOT require data — it matches the
+    // public key embedded in the signature against allowed signers.  When git
+    // calls us there is no data file on the command line.
+    let matched_principals = match data_file {
+        Some(data_path) => {
+            let data = fs::read(data_path)
+                .with_context(|| format!("failed to read data file {data_path}"))?;
+            matching_principals(namespace, &data, &sshsig, &allowed_signers)
+        }
+        None => {
+            // Without data we can only match by public key fingerprint.
+            let sig_fingerprint = sshsig.public_key().fingerprint(Default::default());
+            allowed_signers
+                .iter()
+                .filter(|entry| {
+                    entry.public_key.fingerprint(Default::default()) == sig_fingerprint
+                })
+                .flat_map(|entry| entry.principals.iter().map(String::as_str))
+                .map(String::from)
+                .collect()
+        }
+    };
     if matched_principals.is_empty() {
         eprintln!("No principal matched.");
         process::exit(255);
@@ -246,9 +262,7 @@ fn check_novalidate_action(
     data_file: Option<&str>,
 ) -> anyhow::Result<()> {
     let sshsig = read_signature(required_path(signature_file, "-s/--signature-file")?)?;
-    let data_path = required_path(data_file, "data file")?;
-    let data = fs::read(&data_path)
-        .with_context(|| format!("failed to read data file {}", data_path.display()))?;
+    let data = read_data_or_stdin(data_file)?;
     let public_key = PublicKey::from(sshsig.public_key().clone());
 
     if let Err(error) = public_key.verify(namespace, &data, &sshsig) {
@@ -294,6 +308,21 @@ fn required_path(value: Option<&str>, label: &str) -> anyhow::Result<PathBuf> {
     value
         .map(PathBuf::from)
         .ok_or_else(|| anyhow!("missing required {label}"))
+}
+
+/// Read data from a file path, or fall back to stdin when git pipes the
+/// commit contents without a positional file argument.
+fn read_data_or_stdin(data_file: Option<&str>) -> anyhow::Result<Vec<u8>> {
+    match data_file {
+        Some(path) => fs::read(path)
+            .with_context(|| format!("failed to read data file {path}")),
+        None => {
+            use std::io::Read;
+            let mut buf = Vec::new();
+            std::io::stdin().read_to_end(&mut buf)?;
+            Ok(buf)
+        }
+    }
 }
 
 fn read_signing_public_key(path: &Path) -> anyhow::Result<PublicKey> {
