@@ -209,9 +209,7 @@ fn find_principals_action(
             let sig_fingerprint = sshsig.public_key().fingerprint(Default::default());
             allowed_signers
                 .iter()
-                .filter(|entry| {
-                    entry.public_key.fingerprint(Default::default()) == sig_fingerprint
-                })
+                .filter(|entry| entry.public_key.fingerprint(Default::default()) == sig_fingerprint)
                 .flat_map(|entry| entry.principals.iter().map(String::as_str))
                 .map(String::from)
                 .collect()
@@ -314,8 +312,7 @@ fn required_path(value: Option<&str>, label: &str) -> anyhow::Result<PathBuf> {
 /// commit contents without a positional file argument.
 fn read_data_or_stdin(data_file: Option<&str>) -> anyhow::Result<Vec<u8>> {
     match data_file {
-        Some(path) => fs::read(path)
-            .with_context(|| format!("failed to read data file {path}")),
+        Some(path) => fs::read(path).with_context(|| format!("failed to read data file {path}")),
         None => {
             use std::io::Read;
             let mut buf = Vec::new();
