@@ -78,7 +78,24 @@ const parseSshCmdline = (processChain: ProcessInfo[]): SshInfo => {
       // Extract -Y action (sign, verify, find-principals, etc.)
       const actionMatch = proc.cmdline.match(/-Y\s+(\S+)/);
       const action = actionMatch ? actionMatch[1] : "sign";
-      return { operation: `git ${action}`, target: "commit" };
+
+      // Look for the parent git process to determine what triggered signing
+      // (commit, tag, merge, etc.) and the working directory.
+      let gitCmd = "";
+      let cwd = "";
+      for (const parent of processChain) {
+        const parentExe = extractExeName(parent.exe).toLowerCase();
+        if (parentExe === "git.exe" || parentExe === "git") {
+          const cmdMatch = parent.cmdline.match(/^git\s+(\S+)/);
+          if (cmdMatch) gitCmd = cmdMatch[1];
+          cwd = parent.cwd || "";
+          break;
+        }
+      }
+
+      const operation = gitCmd ? `git ${gitCmd} (${action})` : `git ${action}`;
+      const target = cwd || "unknown";
+      return { operation, target };
     }
   }
 
