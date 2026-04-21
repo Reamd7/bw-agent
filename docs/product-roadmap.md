@@ -194,8 +194,8 @@
 | ~~8~~ | ~~Windows PEB 偏移量硬编码（仅 64-bit）~~ ✅ 已修复 (v0.2.1) | `process.rs:333-335` | ~~1 天~~ |
 | ~~9~~ | ~~LogTable SSH 解析仅覆盖 3 种操作~~ ✅ 已覆盖 | `LogTable.tsx:62-66` | ~~0.5 天~~ |
 | ~~10~~ | ~~无数据库迁移框架~~ ✅ 已缓解 (v0.2.1) | `access_log.rs:60` | ~~1 天~~ |
-| 11 | git config 解析为手写字符串处理 | `git_context.rs:144-175` | 1-2 天 |
-| 12 | 无 Crash Dump / Panic Handler | 全局 | 1 天 |
+| 11 | git config 手写解析 | `git_context.rs:144-175` | 已评估-可接受：只读 repo-local `remote.xxx.url`，手写解析覆盖实际场景 |
+| ~~12~~ | ~~无 Crash Dump / Panic Handler~~ ✅ 已修复 (v0.2.1) | `main.rs` | ~~1 天~~ |
 | ~~13~~ | ~~无登录限速~~ ✅ 已缓解 (v0.2.1) | `auth.rs:24` | ~~0.5 天~~ |
 
 > **注**：#10 迁移失败现在会记录 debug 日志；#13 登录重试次数已提取到 `Config.max_login_attempts` 可配置。

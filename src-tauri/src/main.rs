@@ -127,6 +127,31 @@ impl bw_agent::UiCallback for TauriUiCallback {
 fn main() {
     env_logger::init();
 
+    // Install a panic hook that writes crash details to a log file
+    // before the process terminates. This gives users something to
+    // report when the agent disappears silently.
+    std::panic::set_hook(Box::new(|info| {
+        let msg = info.to_string();
+        log::error!("PANIC: {msg}");
+
+        let crash_dir = dirs_data_dir().join("bw-agent");
+        let _ = std::fs::create_dir_all(&crash_dir);
+        let crash_path = crash_dir.join("crash.log");
+
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&crash_path)
+        {
+            use std::io::Write;
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let _ = writeln!(f, "[unix:{timestamp}] PANIC: {msg}");
+        }
+    }));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
