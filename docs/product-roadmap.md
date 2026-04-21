@@ -153,23 +153,17 @@
 
 ### 🔴 Critical — 安全/稳定性风险
 
-#### 1. Tray Lock 是占位符
-- **位置**：`src-tauri/src/tray.rs:52`
-- **现状**：菜单项 `.enabled(false)` 灰色不可点，点击事件仅 `log::info!("placeholder")`
-- **影响**：用户无法通过托盘锁定 vault，安全功能缺失
-- **工作量**：0.5 天
+#### 1. ~~Tray Lock 是占位符~~ ✅ 已修复 (v0.2.0)
+- **位置**：`src-tauri/src/tray.rs`
+- **修复**：Lock 菜单接线到 vault lock 逻辑，点击时清除 vault keys + pending 2FA + emit lock-state-changed
 
-#### 2. ApprovalQueue 无超时
-- **位置**：`crates/bw-agent/src/approval.rs:46`
-- **现状**：`oneshot::channel` 无超时，SSH agent 无限等待
-- **影响**：单个未响应请求永久阻塞 SSH agent → 拒绝服务
-- **工作量**：0.5 天
+#### 2. ~~ApprovalQueue 无超时~~ ✅ 已修复 (v0.2.0)
+- **位置**：`crates/bw-agent/src/ssh_agent.rs`
+- **修复**：添加 30s 可配置超时（`config.approval_timeout_secs`），超时自动拒绝 + 清理 stale request
 
-#### 3. 无 Token 刷新逻辑
-- **位置**：`crates/bw-agent/src/auth.rs:197`
-- **现状**：`Reunlock` 路径调用 `sync_vault` 时用旧 access_token，失败后 `if let Ok(...)` 静默吞错误
-- **影响**：token 过期后 vault 数据陈旧，新增密钥不可见，撤销密钥仍可用
-- **工作量**：1 天
+#### 3. ~~无 Token 刷新逻辑~~ ✅ 已修复 (v0.2.0)
+- **位置**：`crates/bw-agent/src/auth.rs`, `src-tauri/src/main.rs`, `src-tauri/src/commands.rs`
+- **修复**：Reunlock / 周期同步 / 手动同步 3 个路径均先尝试 `exchange_refresh_token` 再 fallback
 
 ### 🟠 High — 功能缺陷
 
@@ -190,10 +184,8 @@
 - **影响**：完整用户流程（登录→审批→签名→锁定）无验证
 - **工作量**：3-5 天
 
-#### 7. ~68 个 unwrap/expect 调用
-- **分布**：7 个 Rust 文件，大部分在 test 代码中，但 `access_log.rs` 和 `ssh_agent.rs` 有生产路径调用
-- **影响**：任何意外条件触发 panic = 整个 agent 崩溃
-- **工作量**：2-3 天（清理关键路径）
+#### 7. ~~约 68 个 unwrap/expect 调用~~ ✅ 关键路径已清理 (v0.2.0)
+- **修复**：`access_log.rs` 3 处 `expect("lock poisoned")` 替换为 mutex recovery + `locked.rs` 添加 Keys 长度断言 + `region::lock` 优雅 fallback
 
 ### 🟡 Medium — 设计与健壮性
 
@@ -201,10 +193,12 @@
 |---|------|------|--------|
 | 8 | Windows PEB 偏移量硬编码（仅 64-bit） | `process.rs:333-335` | 1 天 |
 | 9 | LogTable SSH 解析仅覆盖 3 种操作 | `LogTable.tsx:62-66` | 0.5 天 |
-| 10 | 无数据库迁移框架 | `access_log.rs:60` | 1 天 |
+| ~~10~~ | ~~无数据库迁移框架~~ ✅ 已缓解 (v0.2.1) | `access_log.rs:60` | ~~1 天~~ |
 | 11 | git config 解析为手写字符串处理 | `git_context.rs:144-175` | 1-2 天 |
 | 12 | 无 Crash Dump / Panic Handler | 全局 | 1 天 |
-| 13 | 无登录限速（仅 3 次尝试但无延迟） | `auth.rs:24` | 0.5 天 |
+| ~~13~~ | ~~无登录限速~~ ✅ 已缓解 (v0.2.1) | `auth.rs:24` | ~~0.5 天~~ |
+
+> **注**：#10 迁移失败现在会记录 debug 日志；#13 登录重试次数已提取到 `Config.max_login_attempts` 可配置。
 
 ### 🟢 Low — 打磨
 
@@ -221,13 +215,27 @@
 
 ## 六、下一步方向（按优先级）
 
-### P0 — 必修课（堵住明显漏洞）
+### P0 — 必修课（堵住明显漏洞） ✅ 已完成
 
-| # | 方向 | 工作量 | 理由 |
+| # | 方向 | 工作量 | 状态 |
 |---|------|--------|------|
-| P0-1 | 修复 Tray Lock | 0.5 天 | 安全功能存在但无效，UI 上灰色不可点 |
-| P0-2 | ApprovalQueue 超时机制 | 0.5 天 | 无超时 = 单个请求可永久阻塞 agent |
-| P0-3 | Token 刷新逻辑 | 1 天 | token 过期后静默使用陈旧数据 |
+| P0-1 | 修复 Tray Lock | 0.5 天 | ✅ `8115b91` |
+| P0-2 | ApprovalQueue 超时机制 | 0.5 天 | ✅ 可配置 `config.approval_timeout_secs` |
+| P0-3 | Token 刷新逻辑 | 1 天 | ✅ 3 个 sync 路径均先 refresh |
+
+### v0.2.1 — 健壮性改进 ✅ 已完成
+
+| # | 改进 | 状态 |
+|---|------|------|
+| AccessLog spawn_blocking | ✅ SQLite I/O 不再阻塞 tokio 线程 |
+| Keys 长度断言 | ✅ malformed 数据不再 panic |
+| Mutex lock 合并 | ✅ auth.rs 减少竞争窗口 |
+| 事件发射日志 | ✅ 8 处 `let _ = emit_*` 改为 `if let Err` + warn |
+| 解密失败日志 | ✅ 密钥消失时可追踪原因 |
+| 审批超时/重试可配置 | ✅ `Config.approval_timeout_secs` + `Config.max_login_attempts` |
+| State lock 缩减 | ✅ ssh_agent.rs 快照 state 后释放锁 |
+| region::lock fallback | ✅ 不再 unwrap panic |
+| Socket 清理日志 | ✅ Unix 启动失败可追踪 |
 
 ### P1 — 核心体验提升（从"能用"到"好用"）
 
@@ -236,7 +244,7 @@
 | P1-1 | **一键 Git Signing 配置向导** | 2-3 天 | 最大 UX 痛点：用户需手动编辑 gitconfig。1Password 已有此功能。UI 检测并一键设置 `gpg.format=ssh`、`gpg.ssh.program`、`user.signingkey` |
 | P1-2 | **Code Signing（Windows/Mac）** | 1-2 天 | 安装包无签名 → SmartScreen/Gatekeeper 警告，严重影响信任度 |
 | P1-3 | **macOS CWD 解析** | 1 天 | gh-match 路由在 macOS 上基本失效 |
-| P1-4 | **unwrap() 清理（关键路径）** | 2-3 天 | 生产路径的 panic = agent 崩溃 |
+| P1-4 | ~~unwrap() 清理（关键路径）~~ | ~~2-3 天~~ | ✅ 已完成 — access_log + locked.rs + region::lock |
 
 ### P2 — 差异化扩展（产品竞争力）
 
