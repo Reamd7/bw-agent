@@ -29,6 +29,21 @@ const HARD_STOP_LIST: &[&str] = &[
     "wininit.exe",
     "csrss.exe",
     "smss.exe",
+    // Container runtimes
+    "docker",
+    "docker.exe",
+    "podman",
+    "containerd",
+    // IDEs and editors
+    "code.exe",
+    "cursor.exe",
+    "devenv.exe",
+    // Desktop environments / session managers
+    "gnome-shell",
+    "kwin_wayland",
+    "xfce4-session",
+    "plasmashell",
+    "mate-session",
 ];
 
 /// Transparent processes: included in the chain but NOT shown in the final
@@ -44,6 +59,44 @@ const TRANSPARENT_LIST: &[&str] = &[
     "zsh",
     "fish",
     "sh",
+    "dash",
+    "ksh",
+    // Terminal multiplexers
+    "tmux",
+    "tmux: server",
+    "screen",
+    // Shell wrappers / launchers
+    "nu",
+    "nu.exe",
+    "xonsh",
+    "elvish",
+    // Common parent processes in IDE/CI
+    "node",
+    "node.exe",
+    "node.js",
+    "python",
+    "python3",
+    "python.exe",
+    "ruby",
+    "ruby.exe",
+    "java",
+    "java.exe",
+    "make",
+    "make.exe",
+    "ninja",
+    "ninja.exe",
+    "cargo",
+    "cargo.exe",
+    "npm",
+    "npm.cmd",
+    "yarn",
+    "yarn.cmd",
+    "pnpm",
+    "pnpm.cmd",
+    // CI runners
+    "runner",
+    "runner.exe",
+    " Runner.Listener",
 ];
 
 /// Maximum number of levels to walk (prevents infinite loops from PID reuse).

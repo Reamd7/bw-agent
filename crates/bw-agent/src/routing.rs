@@ -18,47 +18,15 @@ pub fn extract_match_patterns(entry: &Entry) -> Vec<String> {
 /// Check if a remote URL matches any of the given glob patterns.
 pub fn matches_any_pattern(remote_url: &str, patterns: &[String]) -> bool {
     for pattern in patterns {
-        if simple_glob_match(remote_url, pattern) {
-            return true;
+        if let Ok(glob) = globset::Glob::new(pattern) {
+            if glob.compile_matcher().is_match(remote_url) {
+                return true;
+            }
+        } else {
+            log::warn!("Invalid glob pattern: {pattern}");
         }
     }
     false
-}
-
-/// Simple glob matching: supports `*` (any chars) and `?` (single char).
-fn simple_glob_match(text: &str, pattern: &str) -> bool {
-    let text_bytes = text.as_bytes();
-    let pattern_bytes = pattern.as_bytes();
-
-    let mut ti = 0;
-    let mut pi = 0;
-    let mut star_pi = usize::MAX;
-    let mut star_ti = 0;
-
-    while ti < text_bytes.len() {
-        if pi < pattern_bytes.len() && pattern_bytes[pi] == b'*' {
-            star_pi = pi;
-            star_ti = ti;
-            pi += 1;
-        } else if pi < pattern_bytes.len()
-            && (pattern_bytes[pi] == text_bytes[ti] || pattern_bytes[pi] == b'?')
-        {
-            ti += 1;
-            pi += 1;
-        } else if star_pi != usize::MAX {
-            pi = star_pi + 1;
-            star_ti += 1;
-            ti = star_ti;
-        } else {
-            return false;
-        }
-    }
-
-    while pi < pattern_bytes.len() && pattern_bytes[pi] == b'*' {
-        pi += 1;
-    }
-
-    pi == pattern_bytes.len()
 }
 
 /// Route entries based on remote URL and `gh-match` custom fields.
@@ -177,41 +145,61 @@ mod tests {
 
     #[test]
     fn test_glob_match_star() {
-        assert!(simple_glob_match(
+        assert!(matches_any_pattern(
             "github.com/mycompany/repo",
-            "github.com/mycompany/*"
+            &["github.com/mycompany/*".to_string()]
         ));
     }
 
     #[test]
     fn test_glob_match_exact() {
-        assert!(simple_glob_match(
+        assert!(matches_any_pattern(
             "github.com/mycompany/repo",
-            "github.com/mycompany/repo"
+            &["github.com/mycompany/repo".to_string()]
         ));
     }
 
     #[test]
     fn test_glob_no_match() {
-        assert!(!simple_glob_match(
+        assert!(!matches_any_pattern(
             "github.com/other/repo",
-            "github.com/mycompany/*"
+            &["github.com/mycompany/*".to_string()]
         ));
     }
 
     #[test]
     fn test_glob_match_multiple_stars() {
-        assert!(simple_glob_match(
+        assert!(matches_any_pattern(
             "github.com/mycompany-frontend/app",
-            "github.com/mycompany-*/*"
+            &["github.com/mycompany-*/*".to_string()]
         ));
     }
 
     #[test]
     fn test_glob_match_prefix_star() {
-        assert!(simple_glob_match(
+        assert!(matches_any_pattern(
             "github.com/any-org/any-repo",
-            "github.com/*/*"
+            &["github.com/*/*".to_string()]
+        ));
+    }
+
+    #[test]
+    fn test_glob_match_double_star() {
+        assert!(matches_any_pattern(
+            "github.com/org/team/repo",
+            &["github.com/**".to_string()]
+        ));
+    }
+
+    #[test]
+    fn test_glob_match_char_class() {
+        assert!(matches_any_pattern(
+            "github.com/org1/repo",
+            &["github.com/org[0-9]/*".to_string()]
+        ));
+        assert!(!matches_any_pattern(
+            "github.com/orgx/repo",
+            &["github.com/org[0-9]/*".to_string()]
         ));
     }
 
