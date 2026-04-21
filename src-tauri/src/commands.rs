@@ -553,13 +553,16 @@ pub async fn manual_sync(state: State<'_, AppState>) -> Result<(), String> {
 
     // Try to refresh token before sync
     let access_token = match refresh_token {
-        Some(rt) => match state.client.exchange_refresh_token(&rt).await {
-            Ok(new_token) => {
-                state.agent_state.lock().await.access_token = Some(new_token.clone());
-                new_token
+        Some(rt) => {
+            let client = state.client.read().map_err(|e| e.to_string())?.clone();
+            match client.exchange_refresh_token(&rt).await {
+                Ok(new_token) => {
+                    state.agent_state.lock().await.access_token = Some(new_token.clone());
+                    new_token
+                }
+                Err(_) => access_token,
             }
-            Err(_) => access_token,
-        },
+        }
         None => access_token,
     };
 

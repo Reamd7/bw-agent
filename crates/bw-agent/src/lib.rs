@@ -174,10 +174,7 @@ pub async fn start_agent_with_shared_state<U: UiCallback>(
     {
         let socket_path = std::env::var("BW_SOCKET_PATH").unwrap_or_else(|_| default_socket_path());
         if let Err(e) = std::fs::remove_file(&socket_path) {
-            log::debug!(
-                "Could not remove stale socket {}: {e}",
-                socket_path.display()
-            );
+            log::debug!("Could not remove stale socket {socket_path}: {e}");
         }
         log::info!("Listening on Unix socket: {socket_path}");
         let listener = tokio::net::UnixListener::bind(&socket_path)?;

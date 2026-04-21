@@ -402,8 +402,8 @@ fn start_background_tasks(
             // Try to refresh token before sync
             let access_token = match refresh_token {
                 Some(rt) => {
-                    let client_guard = client.read().unwrap();
-                    match client_guard.exchange_refresh_token(&rt).await {
+                    let client_clone = client.read().unwrap().clone();
+                    match client_clone.exchange_refresh_token(&rt).await {
                         Ok(new_token) => {
                             agent_state.lock().await.access_token = Some(new_token.clone());
                             log::debug!("Token refreshed during periodic sync");
@@ -448,9 +448,7 @@ fn start_background_tasks(
                         if is_auth_error {
                             log::warn!("Auth failure during sync — forcing re-login");
                             agent_state.lock().await.clear();
-                            if let Err(e) =
-                                events::emit_lock_state_changed(&app_handle, true)
-                            {
+                            if let Err(e) = events::emit_lock_state_changed(&app_handle, true) {
                                 log::warn!("Failed to emit lock-state-changed: {e}");
                             }
                         }
