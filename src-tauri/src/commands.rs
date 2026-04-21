@@ -87,8 +87,8 @@ pub async fn unlock(password: String, state: State<'_, AppState>) -> Result<Unlo
 
     let password = locked_password(password);
     let device_id = bw_core::api::generate_device_id();
-    let (kdf, iterations, memory, parallelism) = state
-        .client
+    let client = state.client.read().map_err(|e| e.to_string())?.clone();
+    let (kdf, iterations, memory, parallelism) = client
         .prelogin(&email)
         .await
         .map_err(|error| error.to_string())?;
@@ -96,8 +96,7 @@ pub async fn unlock(password: String, state: State<'_, AppState>) -> Result<Unlo
         bw_core::identity::Identity::new(&email, &password, kdf, iterations, memory, parallelism)
             .map_err(|error| error.to_string())?;
 
-    let login_result = state
-        .client
+    let login_result = client
         .login(
             &email,
             &device_id,
@@ -150,7 +149,6 @@ pub async fn unlock(password: String, state: State<'_, AppState>) -> Result<Unlo
     };
 
     let app_handle = state.app_handle.clone();
-    let client = state.client.clone();
     let agent_state = state.agent_state.clone();
     spawn_sync_and_unlock(app_handle, client, agent_state, email, password, session);
 
@@ -184,8 +182,8 @@ pub async fn unlock_with_two_factor(
     let two_factor_provider = bw_core::api::TwoFactorProviderType::try_from(u64::from(provider))
         .map_err(|error| error.to_string())?;
 
-    let login_result = state
-        .client
+    let client = state.client.read().map_err(|e| e.to_string())?.clone();
+    let login_result = client
         .login(
             &pending.email,
             &pending.device_id,
@@ -211,7 +209,6 @@ pub async fn unlock_with_two_factor(
             };
 
             let app_handle = state.app_handle.clone();
-            let client = state.client.clone();
             let agent_state = state.agent_state.clone();
             spawn_sync_and_unlock(
                 app_handle,
@@ -538,9 +535,12 @@ pub async fn manual_sync(state: State<'_, AppState>) -> Result<(), String> {
         agent_state.access_token.clone().ok_or("No access token")?
     };
 
-    let sync_data = bw_core::api::sync_vault(&state.client, &access_token)
-        .await
-        .map_err(|e| e.to_string())?;
+    let sync_data = {
+        let client = state.client.read().map_err(|e| e.to_string())?.clone();
+        bw_core::api::sync_vault(&client, &access_token)
+            .await
+            .map_err(|e| e.to_string())?
+    };
 
     {
         let mut agent_state = state.agent_state.lock().await;
@@ -568,14 +568,35 @@ pub async fn get_config() -> Result<bw_agent::config::Config, String> {
 }
 
 #[tauri::command]
-pub async fn save_config(config: bw_agent::config::Config) -> Result<(), String> {
+pub async fn save_config(
+    config: bw_agent::config::Config,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let path = config_file_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
 
     let json = serde_json::to_string_pretty(&config).map_err(|error| error.to_string())?;
-    std::fs::write(path, json).map_err(|error| error.to_string())
+    std::fs::write(path, json).map_err(|error| error.to_string())?;
+
+    // Keep in-memory state in sync so subsequent commands (e.g. unlock)
+    // can use the new email / base_url without restarting the app.
+    if let Some(ref email) = config.email {
+        state.agent_state.lock().await.email = Some(email.clone());
+    }
+
+    // Update the HTTP client's URLs so requests go to the right server.
+    {
+        let mut client = state.client.write().map_err(|e| e.to_string())?;
+        client.update(
+            &config.api_url(),
+            &config.identity_url(),
+            config.proxy.as_deref(),
+        );
+    }
+
+    Ok(())
 }
 
 /// Hot-reload lock mode at runtime without restarting the app.

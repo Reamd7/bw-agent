@@ -37,7 +37,7 @@ pub type TwoFactorPromptSlot =
 pub struct AppState {
     pub app_handle: tauri::AppHandle,
     pub agent_state: Arc<tokio::sync::Mutex<bw_agent::state::State>>,
-    pub client: bw_core::api::Client,
+    pub client: Arc<std::sync::RwLock<bw_core::api::Client>>,
     pub approval_queue: Arc<bw_agent::approval::ApprovalQueue>,
     pub access_log: Arc<bw_agent::access_log::AccessLog>,
     pub password_tx: PasswordPromptSlot,
@@ -136,11 +136,11 @@ fn main() {
             config.apply_env_overrides();
 
             let app_handle = app.handle().clone();
-            let client = bw_core::api::Client::new(
+            let client = Arc::new(std::sync::RwLock::new(bw_core::api::Client::new(
                 &config.api_url(),
                 &config.identity_url(),
                 config.proxy.as_deref(),
-            );
+            )));
             let approval_queue = Arc::new(bw_agent::approval::ApprovalQueue::new());
             let access_log = Arc::new(open_access_log().map_err(to_tauri_error)?);
             let password_tx = Arc::new(Mutex::new(None));
@@ -164,7 +164,7 @@ fn main() {
             app.manage(AppState {
                 app_handle: app_handle.clone(),
                 agent_state: Arc::clone(&agent_state),
-                client: client.clone(),
+                client: Arc::clone(&client),
                 approval_queue: Arc::clone(&approval_queue),
                 access_log: Arc::clone(&access_log),
                 password_tx,
@@ -174,7 +174,7 @@ fn main() {
 
             let agent_config = config.clone();
             let agent_state_for_agent = Arc::clone(&agent_state);
-            let client_for_agent = client.clone();
+            let client_for_agent = client.read().unwrap().clone();
             let approval_queue_for_agent = Arc::clone(&approval_queue);
             let access_log_for_agent = Arc::clone(&access_log);
             tauri::async_runtime::spawn(async move {
@@ -196,7 +196,7 @@ fn main() {
             start_background_tasks(
                 app_handle.clone(),
                 Arc::clone(&agent_state),
-                client.clone(),
+                Arc::clone(&client),
                 pending_two_factor_for_bg,
             );
 
@@ -325,7 +325,7 @@ fn dirs_data_dir() -> std::path::PathBuf {
 fn start_background_tasks(
     app_handle: tauri::AppHandle,
     agent_state: Arc<tokio::sync::Mutex<bw_agent::state::State>>,
-    client: bw_core::api::Client,
+    client: Arc<std::sync::RwLock<bw_core::api::Client>>,
     pending_two_factor: Arc<Mutex<Option<PendingTwoFactor>>>,
 ) {
     tauri::async_runtime::spawn(async move {
@@ -371,42 +371,45 @@ fn start_background_tasks(
                 }
             };
 
-            match bw_core::api::sync_vault(&client, &access_token).await {
-                Ok(sync_data) => {
-                    let mut state = agent_state.lock().await;
-                    if state.is_unlocked() {
-                        state.entries = sync_data.entries;
-                        state.protected_org_keys = sync_data.org_keys;
-                        log::debug!("Periodic sync: updated {} entries", state.entries.len());
+            {
+                let client = client.read().unwrap().clone();
+                match bw_core::api::sync_vault(&client, &access_token).await {
+                    Ok(sync_data) => {
+                        let mut state = agent_state.lock().await;
+                        if state.is_unlocked() {
+                            state.entries = sync_data.entries;
+                            state.protected_org_keys = sync_data.org_keys;
+                            log::debug!("Periodic sync: updated {} entries", state.entries.len());
+                            let _ = events::emit_vault_synced(
+                                &app_handle,
+                                events::VaultSyncedPayload {
+                                    success: true,
+                                    error: None,
+                                },
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        let error_msg = error.to_string();
+                        log::warn!("Periodic sync failed: {error_msg}");
+
+                        let is_auth_error = error_msg.contains("401")
+                            || error_msg.to_lowercase().contains("unauthorized")
+                            || error_msg.to_lowercase().contains("token");
+                        if is_auth_error {
+                            log::warn!("Auth failure during sync — forcing re-login");
+                            agent_state.lock().await.clear();
+                            let _ = events::emit_lock_state_changed(&app_handle, true);
+                        }
+
                         let _ = events::emit_vault_synced(
                             &app_handle,
                             events::VaultSyncedPayload {
-                                success: true,
-                                error: None,
+                                success: false,
+                                error: Some(error_msg),
                             },
                         );
                     }
-                }
-                Err(error) => {
-                    let error_msg = error.to_string();
-                    log::warn!("Periodic sync failed: {error_msg}");
-
-                    let is_auth_error = error_msg.contains("401")
-                        || error_msg.to_lowercase().contains("unauthorized")
-                        || error_msg.to_lowercase().contains("token");
-                    if is_auth_error {
-                        log::warn!("Auth failure during sync — forcing re-login");
-                        agent_state.lock().await.clear();
-                        let _ = events::emit_lock_state_changed(&app_handle, true);
-                    }
-
-                    let _ = events::emit_vault_synced(
-                        &app_handle,
-                        events::VaultSyncedPayload {
-                            success: false,
-                            error: Some(error_msg),
-                        },
-                    );
                 }
             }
         }
