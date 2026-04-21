@@ -194,11 +194,39 @@ async fn try_login<U: crate::UiCallback>(
                 state.set_unlocked(keys, org_keys);
             }
 
-            if let Ok(sync_data) = bw_core::api::sync_vault(client, &access_token).await {
-                let mut state = state.lock().await;
-                state.protected_private_key = Some(sync_data.protected_private_key);
-                state.protected_org_keys = sync_data.org_keys;
-                state.entries = sync_data.entries;
+            // Try to refresh the access token if we have a refresh_token
+            let refresh_token = state.lock().await.refresh_token.clone();
+            let fresh_token = match refresh_token {
+                Some(rt) => match client.exchange_refresh_token(&rt).await {
+                    Ok(new_token) => {
+                        state.lock().await.access_token = Some(new_token.clone());
+                        log::info!("Token refreshed successfully during re-unlock");
+                        new_token
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "Token refresh failed during re-unlock: {e}, trying existing token"
+                        );
+                        access_token.clone()
+                    }
+                },
+                None => {
+                    log::debug!("No refresh token available, using existing access token");
+                    access_token.clone()
+                }
+            };
+
+            match bw_core::api::sync_vault(client, &fresh_token).await {
+                Ok(sync_data) => {
+                    let mut state = state.lock().await;
+                    state.protected_private_key = Some(sync_data.protected_private_key);
+                    state.protected_org_keys = sync_data.org_keys;
+                    state.entries = sync_data.entries;
+                    log::debug!("Vault sync succeeded during re-unlock");
+                }
+                Err(e) => {
+                    log::warn!("Vault sync failed during re-unlock: {e}. Local keys remain valid.");
+                }
             }
         }
     }

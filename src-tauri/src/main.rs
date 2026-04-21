@@ -360,15 +360,34 @@ fn start_background_tasks(
                 continue;
             }
 
-            let access_token = {
+            let (access_token, refresh_token) = {
                 let state = agent_state.lock().await;
                 if !state.is_unlocked() {
                     continue;
                 }
                 match state.access_token.clone() {
-                    Some(token) => token,
+                    Some(token) => (token, state.refresh_token.clone()),
                     None => continue,
                 }
+            };
+
+            // Try to refresh token before sync
+            let access_token = match refresh_token {
+                Some(rt) => {
+                    let client_guard = client.read().unwrap();
+                    match client_guard.exchange_refresh_token(&rt).await {
+                        Ok(new_token) => {
+                            agent_state.lock().await.access_token = Some(new_token.clone());
+                            log::debug!("Token refreshed during periodic sync");
+                            new_token
+                        }
+                        Err(e) => {
+                            log::debug!("Token refresh failed during periodic sync: {e}");
+                            access_token
+                        }
+                    }
+                }
+                None => access_token,
             };
 
             {
@@ -380,13 +399,15 @@ fn start_background_tasks(
                             state.entries = sync_data.entries;
                             state.protected_org_keys = sync_data.org_keys;
                             log::debug!("Periodic sync: updated {} entries", state.entries.len());
-                            let _ = events::emit_vault_synced(
+                            if let Err(emit_error) = events::emit_vault_synced(
                                 &app_handle,
                                 events::VaultSyncedPayload {
                                     success: true,
                                     error: None,
                                 },
-                            );
+                            ) {
+                                log::warn!("Failed to emit vault_synced event: {emit_error}");
+                            }
                         }
                     }
                     Err(error) => {
@@ -399,16 +420,22 @@ fn start_background_tasks(
                         if is_auth_error {
                             log::warn!("Auth failure during sync — forcing re-login");
                             agent_state.lock().await.clear();
-                            let _ = events::emit_lock_state_changed(&app_handle, true);
+                            if let Err(emit_error) =
+                                events::emit_lock_state_changed(&app_handle, true)
+                            {
+                                log::warn!("Failed to emit lock_state_changed event: {emit_error}");
+                            }
                         }
 
-                        let _ = events::emit_vault_synced(
+                        if let Err(emit_error) = events::emit_vault_synced(
                             &app_handle,
                             events::VaultSyncedPayload {
                                 success: false,
                                 error: Some(error_msg),
                             },
-                        );
+                        ) {
+                            log::warn!("Failed to emit vault_synced event: {emit_error}");
+                        }
                     }
                 }
             }

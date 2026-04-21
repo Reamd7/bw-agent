@@ -258,7 +258,21 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
                 .await;
         }
 
-        let approved = approval_rx.await.unwrap_or(false);
+        let approved =
+            match tokio::time::timeout(std::time::Duration::from_secs(30), approval_rx).await {
+                Ok(Ok(approved)) => approved,
+                Ok(Err(_)) => {
+                    log::warn!("Approval sender dropped, auto-denying");
+                    false
+                }
+                Err(_) => {
+                    log::warn!("Approval request timed out after 30s, auto-denying");
+                    self.approval_queue
+                        .respond(&approval_request.id, false)
+                        .await;
+                    false
+                }
+            };
 
         // Log the access regardless of approval result.
         if let Err(e) = self.access_log.record(

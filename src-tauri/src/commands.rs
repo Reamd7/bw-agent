@@ -527,12 +527,25 @@ pub async fn lock_vault(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn manual_sync(state: State<'_, AppState>) -> Result<(), String> {
-    let access_token = {
+    let (access_token, refresh_token) = {
         let agent_state = state.agent_state.lock().await;
         if !agent_state.is_unlocked() {
             return Err("Vault is locked".to_string());
         }
-        agent_state.access_token.clone().ok_or("No access token")?
+        let at = agent_state.access_token.clone().ok_or("No access token")?;
+        (at, agent_state.refresh_token.clone())
+    };
+
+    // Try to refresh token before sync
+    let access_token = match refresh_token {
+        Some(rt) => match state.client.exchange_refresh_token(&rt).await {
+            Ok(new_token) => {
+                state.agent_state.lock().await.access_token = Some(new_token.clone());
+                new_token
+            }
+            Err(_) => access_token,
+        },
+        None => access_token,
     };
 
     let sync_data = {

@@ -42,7 +42,10 @@ impl AccessLog {
     }
 
     fn init_schema(&self) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().expect("lock poisoned");
+        let conn = self.conn.lock().unwrap_or_else(|e| {
+            log::warn!("Access log mutex was poisoned, recovering");
+            e.into_inner()
+        });
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS access_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,7 +77,10 @@ impl AccessLog {
         approved: bool,
         process_chain: &[ProcessInfo],
     ) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().expect("lock poisoned");
+        let conn = self.conn.lock().unwrap_or_else(|e| {
+            log::warn!("Access log mutex was poisoned, recovering");
+            e.into_inner()
+        });
         let chain_json = serde_json::to_string(process_chain).unwrap_or_else(|_| "[]".to_string());
         conn.execute(
             "INSERT INTO access_log (key_fingerprint, key_name, client_exe, client_pid, approved, process_chain) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -85,7 +91,10 @@ impl AccessLog {
 
     /// Query the most recent access log entries (newest first).
     pub fn query(&self, limit: u32) -> rusqlite::Result<Vec<AccessLogEntry>> {
-        let conn = self.conn.lock().expect("lock poisoned");
+        let conn = self.conn.lock().unwrap_or_else(|e| {
+            log::warn!("Access log mutex was poisoned, recovering");
+            e.into_inner()
+        });
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, key_fingerprint, key_name, client_exe, client_pid, approved, process_chain FROM access_log ORDER BY id DESC LIMIT ?1",
         )?;
