@@ -45,24 +45,30 @@ fn spawn_sync_and_unlock(
         let result = sync_and_unlock(client, agent_state, email, password, session).await;
         match result {
             Ok(()) => {
-                let _ = crate::events::emit_lock_state_changed(&app_handle, false);
-                let _ = crate::events::emit_vault_synced(
+                if let Err(e) = crate::events::emit_lock_state_changed(&app_handle, false) {
+                    log::warn!("Failed to emit lock-state-changed: {e}");
+                }
+                if let Err(e) = crate::events::emit_vault_synced(
                     &app_handle,
                     crate::events::VaultSyncedPayload {
                         success: true,
                         error: None,
                     },
-                );
+                ) {
+                    log::warn!("Failed to emit vault-synced: {e}");
+                }
             }
             Err(error) => {
                 log::error!("Background sync/unlock failed: {error}");
-                let _ = crate::events::emit_vault_synced(
+                if let Err(e) = crate::events::emit_vault_synced(
                     &app_handle,
                     crate::events::VaultSyncedPayload {
                         success: false,
                         error: Some(error),
                     },
-                );
+                ) {
+                    log::warn!("Failed to emit vault-synced: {e}");
+                }
             }
         }
     });
@@ -460,17 +466,26 @@ pub async fn list_keys(state: State<'_, AppState>) -> Result<Vec<SshKeyInfo>, St
                         f.name.as_deref()?,
                         entry.key.as_deref(),
                         entry.org_id.as_deref(),
-                    )
-                    .ok()?;
+                    );
+                    if let Err(e) = &field_name {
+                        log::debug!("Failed to decrypt field name for entry {}: {e}", entry.id);
+                    }
+                    let field_name = field_name.ok()?;
                     if field_name == "gh-match" {
                         let field_value = f.value.as_deref()?;
-                        bw_agent::auth::decrypt_cipher(
+                        let decrypted = bw_agent::auth::decrypt_cipher(
                             &agent_state,
                             field_value,
                             entry.key.as_deref(),
                             entry.org_id.as_deref(),
-                        )
-                        .ok()
+                        );
+                        if let Err(e) = &decrypted {
+                            log::debug!(
+                                "Failed to decrypt gh-match field value for entry {}: {e}",
+                                entry.id
+                            );
+                        }
+                        decrypted.ok()
                     } else {
                         None
                     }
@@ -527,12 +542,28 @@ pub async fn lock_vault(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn manual_sync(state: State<'_, AppState>) -> Result<(), String> {
-    let access_token = {
+    let (access_token, refresh_token) = {
         let agent_state = state.agent_state.lock().await;
         if !agent_state.is_unlocked() {
             return Err("Vault is locked".to_string());
         }
-        agent_state.access_token.clone().ok_or("No access token")?
+        let at = agent_state.access_token.clone().ok_or("No access token")?;
+        (at, agent_state.refresh_token.clone())
+    };
+
+    // Try to refresh token before sync
+    let access_token = match refresh_token {
+        Some(rt) => {
+            let client = state.client.read().map_err(|e| e.to_string())?.clone();
+            match client.exchange_refresh_token(&rt).await {
+                Ok(new_token) => {
+                    state.agent_state.lock().await.access_token = Some(new_token.clone());
+                    new_token
+                }
+                Err(_) => access_token,
+            }
+        }
+        None => access_token,
     };
 
     let sync_data = {

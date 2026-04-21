@@ -1,3 +1,4 @@
+use crate::AppState;
 #[cfg(target_os = "windows")]
 use tauri::tray::{MouseButton, MouseButtonState};
 use tauri::{
@@ -27,9 +28,7 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
 
 pub fn setup_tray(app: &App) -> tauri::Result<()> {
     let show_window = MenuItemBuilder::with_id(MENU_SHOW_WINDOW, "Show Window").build(app)?;
-    let lock = MenuItemBuilder::with_id(MENU_LOCK, "Lock")
-        .enabled(false)
-        .build(app)?;
+    let lock = MenuItemBuilder::with_id(MENU_LOCK, "Lock").build(app)?;
     let quit = MenuItemBuilder::with_id(MENU_QUIT, "Quit").build(app)?;
 
     let menu = MenuBuilder::new(app)
@@ -39,7 +38,7 @@ pub fn setup_tray(app: &App) -> tauri::Result<()> {
         .item(&quit)
         .build()?;
 
-    TrayIconBuilder::new()
+    TrayIconBuilder::with_id("main-tray")
         .icon(
             app.default_window_icon()
                 .cloned()
@@ -49,7 +48,26 @@ pub fn setup_tray(app: &App) -> tauri::Result<()> {
         .menu(&menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
             MENU_SHOW_WINDOW => show_main_window(app),
-            MENU_LOCK => log::info!("tray lock clicked (placeholder)"),
+            MENU_LOCK => {
+                let handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = handle.state::<AppState>();
+                    // Skip if already locked
+                    if !state.agent_state.lock().await.is_unlocked() {
+                        return;
+                    }
+                    state.agent_state.lock().await.clear();
+                    if let Ok(mut pending) = state.pending_two_factor.lock() {
+                        if pending.take().is_some() {
+                            log::debug!("Cleared pending two-factor login state");
+                        }
+                    }
+                    if let Err(e) = crate::events::emit_lock_state_changed(&state.app_handle, true)
+                    {
+                        log::warn!("Failed to emit lock-state-changed: {e}");
+                    }
+                });
+            }
             MENU_QUIT => std::process::exit(0),
             _ => {}
         })

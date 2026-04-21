@@ -64,7 +64,11 @@ impl ApprovalQueue {
     /// Respond to a pending approval request.
     pub async fn respond(&self, request_id: &str, approved: bool) {
         if let Some(tx) = self.pending.lock().await.remove(request_id) {
-            let _ = tx.send(approved);
+            if tx.send(approved).is_err() {
+                log::warn!(
+                    "Approval response dropped — receiver already cancelled for request {request_id}"
+                );
+            }
         }
         self.requests.lock().await.retain(|r| r.id != request_id);
     }

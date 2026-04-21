@@ -149,8 +149,15 @@ pub async fn start_agent_with_shared_state<U: UiCallback>(
         log::info!("Proxy: {proxy}");
     }
 
-    let handler =
-        ssh_agent::SshAgentHandler::new(state, client, Arc::new(ui), approval_queue, access_log);
+    let handler = ssh_agent::SshAgentHandler::new(
+        state,
+        client,
+        Arc::new(ui),
+        approval_queue,
+        access_log,
+        std::time::Duration::from_secs(config.approval_timeout_secs),
+        config.max_login_attempts,
+    );
 
     log::info!("Starting bw-agent SSH agent...");
 
@@ -166,7 +173,9 @@ pub async fn start_agent_with_shared_state<U: UiCallback>(
     #[cfg(unix)]
     {
         let socket_path = std::env::var("BW_SOCKET_PATH").unwrap_or_else(|_| default_socket_path());
-        let _ = std::fs::remove_file(&socket_path);
+        if let Err(e) = std::fs::remove_file(&socket_path) {
+            log::debug!("Could not remove stale socket {socket_path}: {e}");
+        }
         log::info!("Listening on Unix socket: {socket_path}");
         let listener = tokio::net::UnixListener::bind(&socket_path)?;
         ssh_agent_lib::agent::listen(listener, handler).await?;

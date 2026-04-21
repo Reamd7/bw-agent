@@ -19,7 +19,15 @@ impl Default for Vec {
         let lock = None;
         #[cfg(not(windows))]
         let lock = match REGION_LOCK_WORKS.get() {
-            Some(true) => Some(region::lock(data.as_ptr(), data.capacity()).unwrap()),
+            Some(true) => match region::lock(data.as_ptr(), data.capacity()) {
+                Ok(guard) => Some(guard),
+                Err(e) => {
+                    log::warn!(
+                        "Failed to lock memory region (mlock): {e}. Continuing without memory locking."
+                    );
+                    None
+                }
+            },
             Some(false) => None,
             None => match region::lock(data.as_ptr(), data.capacity()) {
                 Ok(lock) => {
@@ -102,6 +110,11 @@ pub struct Keys {
 
 impl Keys {
     pub fn new(keys: Vec) -> Self {
+        assert!(
+            keys.data().len() >= 64,
+            "Keys require at least 64 bytes, got {}",
+            keys.data().len()
+        );
         Self { keys }
     }
 

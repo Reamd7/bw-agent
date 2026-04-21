@@ -15,6 +15,8 @@ pub struct SshAgentHandler<U: crate::UiCallback> {
     ui: Arc<U>,
     approval_queue: Arc<ApprovalQueue>,
     access_log: Arc<AccessLog>,
+    approval_timeout: std::time::Duration,
+    max_login_attempts: u32,
     /// PID of the connected client. Set per-session in `new_session`.
     client_pid: u32,
     /// Entry IDs allowed for the current session (set by request_identities).
@@ -30,6 +32,8 @@ impl<U: crate::UiCallback> Clone for SshAgentHandler<U> {
             ui: Arc::clone(&self.ui),
             approval_queue: Arc::clone(&self.approval_queue),
             access_log: Arc::clone(&self.access_log),
+            approval_timeout: self.approval_timeout,
+            max_login_attempts: self.max_login_attempts,
             client_pid: self.client_pid,
             allowed_entry_ids: self.allowed_entry_ids.clone(),
         }
@@ -43,6 +47,8 @@ impl<U: crate::UiCallback> SshAgentHandler<U> {
         ui: Arc<U>,
         approval_queue: Arc<ApprovalQueue>,
         access_log: Arc<AccessLog>,
+        approval_timeout: std::time::Duration,
+        max_login_attempts: u32,
     ) -> Self {
         Self {
             state,
@@ -50,6 +56,8 @@ impl<U: crate::UiCallback> SshAgentHandler<U> {
             ui,
             approval_queue,
             access_log,
+            approval_timeout,
+            max_login_attempts,
             client_pid: 0,
             allowed_entry_ids: None,
         }
@@ -114,21 +122,49 @@ fn find_entry_for_pubkey(state: &State, requested_bytes: &[u8]) -> Option<(Strin
     None
 }
 
+fn snapshot_state_for_crypto(state: &State) -> State {
+    State {
+        keys: state.keys.clone(),
+        org_keys: state.org_keys.clone(),
+        cached_at: state.cached_at,
+        cache_ttl: state.cache_ttl,
+        entries: state.entries.clone(),
+        access_token: None,
+        refresh_token: None,
+        email: None,
+        kdf: None,
+        iterations: None,
+        memory: None,
+        parallelism: None,
+        protected_key: None,
+        protected_private_key: None,
+        protected_org_keys: std::collections::HashMap::new(),
+    }
+}
+
 #[ssh_agent_lib::async_trait]
 impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> {
     async fn request_identities(
         &mut self,
     ) -> Result<Vec<ssh_agent_lib::proto::Identity>, ssh_agent_lib::error::AgentError> {
-        auth::ensure_unlocked(self.state.clone(), &self.client, self.ui.as_ref())
-            .await
-            .map_err(agent_error)?;
+        auth::ensure_unlocked(
+            self.state.clone(),
+            &self.client,
+            self.ui.as_ref(),
+            self.max_login_attempts,
+        )
+        .await
+        .map_err(agent_error)?;
 
         // Route entries based on git context (no lock needed for process/fs I/O).
         let process_chain = crate::process::resolve_process_chain(self.client_pid);
         let remote_url = crate::git_context::extract_remote_url(&process_chain);
         log::debug!("request_identities: remote_url={:?}", remote_url);
 
-        let state = self.state.lock().await;
+        let state = {
+            let state = self.state.lock().await;
+            snapshot_state_for_crypto(&state)
+        };
 
         // Extract gh-match patterns with decrypted field names/values.
         let extract_patterns = |entry: &bw_core::db::Entry| -> Vec<String> {
@@ -141,16 +177,25 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
                         f.name.as_deref()?,
                         entry.key.as_deref(),
                         entry.org_id.as_deref(),
-                    )
-                    .ok()?;
+                    );
+                    if let Err(e) = &field_name {
+                        log::debug!("Failed to decrypt field name for entry {}: {e}", entry.id);
+                    }
+                    let field_name = field_name.ok()?;
                     if field_name == "gh-match" {
-                        auth::decrypt_cipher(
+                        let field_value = auth::decrypt_cipher(
                             &state,
                             f.value.as_deref()?,
                             entry.key.as_deref(),
                             entry.org_id.as_deref(),
-                        )
-                        .ok()
+                        );
+                        if let Err(e) = &field_value {
+                            log::debug!(
+                                "Failed to decrypt gh-match field value for entry {}: {e}",
+                                entry.id
+                            );
+                        }
+                        field_value.ok()
                     } else {
                         None
                     }
@@ -203,9 +248,14 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
         &mut self,
         request: ssh_agent_lib::proto::SignRequest,
     ) -> Result<ssh_agent_lib::ssh_key::Signature, ssh_agent_lib::error::AgentError> {
-        auth::ensure_unlocked(self.state.clone(), &self.client, self.ui.as_ref())
-            .await
-            .map_err(agent_error)?;
+        auth::ensure_unlocked(
+            self.state.clone(),
+            &self.client,
+            self.ui.as_ref(),
+            self.max_login_attempts,
+        )
+        .await
+        .map_err(agent_error)?;
 
         let requested_pubkey = ssh_agent_lib::ssh_key::PublicKey::from(request.pubkey.clone());
         let requested_bytes = requested_pubkey.to_bytes().map_err(agent_error)?;
@@ -214,7 +264,8 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
         // Look up the entry for this pubkey (used for enforcement + approval label).
         let (entry_id, key_name) = {
             let state = self.state.lock().await;
-            find_entry_for_pubkey(&state, &requested_bytes)
+            let crypto_state = snapshot_state_for_crypto(&state);
+            find_entry_for_pubkey(&crypto_state, &requested_bytes)
                 .unwrap_or(("unknown".to_string(), "unknown".to_string()))
         };
 
@@ -258,19 +309,45 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
                 .await;
         }
 
-        let approved = approval_rx.await.unwrap_or(false);
+        let approved = match tokio::time::timeout(self.approval_timeout, approval_rx).await {
+            Ok(Ok(approved)) => approved,
+            Ok(Err(_)) => {
+                log::warn!("Approval sender dropped, auto-denying");
+                false
+            }
+            Err(_) => {
+                log::warn!(
+                    "Approval request timed out after {:?}, auto-denying",
+                    self.approval_timeout
+                );
+                self.approval_queue
+                    .respond(&approval_request.id, false)
+                    .await;
+                false
+            }
+        };
 
         // Log the access regardless of approval result.
-        if let Err(e) = self.access_log.record(
-            &fingerprint_str,
-            &key_name,
-            &client_exe,
-            self.client_pid,
-            approved,
-            &process_chain,
-        ) {
-            log::error!("Failed to write access log: {e}");
-        }
+        // Fire-and-forget on a blocking thread to avoid stalling the
+        // tokio worker while SQLite performs disk I/O.
+        let access_log = Arc::clone(&self.access_log);
+        let fingerprint_str = fingerprint_str.clone();
+        let key_name = key_name.clone();
+        let client_exe = client_exe.clone();
+        let client_pid = self.client_pid;
+        let process_chain = process_chain.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = access_log.record(
+                &fingerprint_str,
+                &key_name,
+                &client_exe,
+                client_pid,
+                approved,
+                &process_chain,
+            ) {
+                log::error!("Failed to write access log: {e}");
+            }
+        });
 
         if !approved {
             return Err(ssh_agent_lib::error::AgentError::Other(
@@ -279,7 +356,11 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
         }
 
         // Proceed with signing.
-        let state = self.state.lock().await;
+        let state = {
+            let state = self.state.lock().await;
+            snapshot_state_for_crypto(&state)
+        };
+
         for entry in &state.entries {
             if let bw_core::db::EntryData::SshKey {
                 private_key: Some(encrypted_privkey),
@@ -408,6 +489,8 @@ mod tests {
             Arc::new(crate::StubUiCallback),
             approval_queue,
             access_log,
+            std::time::Duration::from_secs(30),
+            3,
         );
 
         use ssh_agent_lib::agent::Session;

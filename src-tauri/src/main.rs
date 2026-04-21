@@ -127,6 +127,31 @@ impl bw_agent::UiCallback for TauriUiCallback {
 fn main() {
     env_logger::init();
 
+    // Install a panic hook that writes crash details to a log file
+    // before the process terminates. This gives users something to
+    // report when the agent disappears silently.
+    std::panic::set_hook(Box::new(|info| {
+        let msg = info.to_string();
+        log::error!("PANIC: {msg}");
+
+        let crash_dir = dirs_data_dir().join("bw-agent");
+        let _ = std::fs::create_dir_all(&crash_dir);
+        let crash_path = crash_dir.join("crash.log");
+
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&crash_path)
+        {
+            use std::io::Write;
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let _ = writeln!(f, "[unix:{timestamp}] PANIC: {msg}");
+        }
+    }));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
@@ -329,6 +354,7 @@ fn start_background_tasks(
     pending_two_factor: Arc<Mutex<Option<PendingTwoFactor>>>,
 ) {
     tauri::async_runtime::spawn(async move {
+        const SYNC_INTERVAL_TICKS: u64 = 12; // 12 * 5s = 60s
         let mut tick_count: u64 = 0;
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
         interval.tick().await; // Skip the first immediate tick
@@ -350,25 +376,46 @@ fn start_background_tasks(
                         pending.take();
                     }
                     log::info!("Vault TTL expired — locking and notifying frontend");
-                    let _ = events::emit_lock_state_changed(&app_handle, true);
+                    if let Err(e) = events::emit_lock_state_changed(&app_handle, true) {
+                        log::warn!("Failed to emit lock-state-changed: {e}");
+                    }
                     continue;
                 }
             }
 
             // ── Periodic sync (every 60s = 12 ticks of 5s) ──────────
-            if tick_count % 12 != 0 {
+            if tick_count % SYNC_INTERVAL_TICKS != 0 {
                 continue;
             }
 
-            let access_token = {
+            let (access_token, refresh_token) = {
                 let state = agent_state.lock().await;
                 if !state.is_unlocked() {
                     continue;
                 }
                 match state.access_token.clone() {
-                    Some(token) => token,
+                    Some(token) => (token, state.refresh_token.clone()),
                     None => continue,
                 }
+            };
+
+            // Try to refresh token before sync
+            let access_token = match refresh_token {
+                Some(rt) => {
+                    let client_clone = client.read().unwrap().clone();
+                    match client_clone.exchange_refresh_token(&rt).await {
+                        Ok(new_token) => {
+                            agent_state.lock().await.access_token = Some(new_token.clone());
+                            log::debug!("Token refreshed during periodic sync");
+                            new_token
+                        }
+                        Err(e) => {
+                            log::debug!("Token refresh failed during periodic sync: {e}");
+                            access_token
+                        }
+                    }
+                }
+                None => access_token,
             };
 
             {
@@ -380,13 +427,15 @@ fn start_background_tasks(
                             state.entries = sync_data.entries;
                             state.protected_org_keys = sync_data.org_keys;
                             log::debug!("Periodic sync: updated {} entries", state.entries.len());
-                            let _ = events::emit_vault_synced(
+                            if let Err(e) = events::emit_vault_synced(
                                 &app_handle,
                                 events::VaultSyncedPayload {
                                     success: true,
                                     error: None,
                                 },
-                            );
+                            ) {
+                                log::warn!("Failed to emit vault-synced: {e}");
+                            }
                         }
                     }
                     Err(error) => {
@@ -399,16 +448,20 @@ fn start_background_tasks(
                         if is_auth_error {
                             log::warn!("Auth failure during sync — forcing re-login");
                             agent_state.lock().await.clear();
-                            let _ = events::emit_lock_state_changed(&app_handle, true);
+                            if let Err(e) = events::emit_lock_state_changed(&app_handle, true) {
+                                log::warn!("Failed to emit lock-state-changed: {e}");
+                            }
                         }
 
-                        let _ = events::emit_vault_synced(
+                        if let Err(e) = events::emit_vault_synced(
                             &app_handle,
                             events::VaultSyncedPayload {
                                 success: false,
                                 error: Some(error_msg),
                             },
-                        );
+                        ) {
+                            log::warn!("Failed to emit vault-synced: {e}");
+                        }
                     }
                 }
             }
