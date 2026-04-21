@@ -669,6 +669,13 @@ impl Client {
         }
     }
 
+    /// Update the base URL, identity URL and proxy at runtime (e.g. after setup).
+    pub fn update(&mut self, base_url: &str, identity_url: &str, proxy: Option<&str>) {
+        self.base_url = base_url.to_string();
+        self.identity_url = identity_url.to_string();
+        self.proxy = proxy.map(String::from);
+    }
+
     pub fn bitwarden_cloud(proxy: Option<&str>) -> Self {
         Self::new(
             "https://api.bitwarden.com",

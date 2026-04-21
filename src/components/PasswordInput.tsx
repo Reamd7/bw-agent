@@ -25,10 +25,12 @@ export default function PasswordInput(props: PasswordInputProps) {
         />
         <button
           type="button"
-          onClick={() => setShowPassword(!showPassword())}
+          onPointerDown={() => setShowPassword(true)}
+          onPointerUp={() => setShowPassword(false)}
+          onPointerLeave={() => setShowPassword(false)}
           disabled={props.disabled}
-          class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-200 focus:outline-none disabled:opacity-50"
-          aria-label={showPassword() ? "Hide password" : "Show password"}
+          class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-200 focus:outline-none disabled:opacity-50 select-none"
+          aria-label="Hold to show password"
         >
           <Show when={showPassword()} fallback={
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
