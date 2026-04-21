@@ -329,10 +329,14 @@ fn resolve_cmdline(pid: u32) -> String {
         reserved3: usize,
     }
 
-    // On 64-bit: CommandLine (UNICODE_STRING) is at offset 0x70 in RTL_USER_PROCESS_PARAMETERS.
-    const PARAMS_CMDLINE_OFFSET: usize = 0x70;
-    // PEB: ProcessParameters pointer is at offset 0x20 on 64-bit.
-    const PEB_PARAMS_OFFSET: usize = 0x20;
+    // PEB struct offsets differ between 32-bit and 64-bit Windows.
+    // RTL_USER_PROCESS_PARAMETERS layout depends on pointer size.
+    const IS_64BIT: bool = std::mem::size_of::<usize>() == 8;
+
+    // PEB: ProcessParameters pointer offset.
+    const PEB_PARAMS_OFFSET: usize = if IS_64BIT { 0x20 } else { 0x10 };
+    // RTL_USER_PROCESS_PARAMETERS: CommandLine (UNICODE_STRING) offset.
+    const PARAMS_CMDLINE_OFFSET: usize = if IS_64BIT { 0x70 } else { 0x40 };
 
     unsafe extern "system" {
         fn OpenProcess(desired_access: u32, inherit_handle: i32, pid: u32) -> isize;
@@ -467,8 +471,11 @@ pub fn resolve_cwd(pid: u32) -> String {
         reserved3: usize,
     }
 
-    const PARAMS_CWD_OFFSET: usize = 0x38;
-    const PEB_PARAMS_OFFSET: usize = 0x20;
+    const IS_64BIT: bool = std::mem::size_of::<usize>() == 8;
+
+    const PEB_PARAMS_OFFSET: usize = if IS_64BIT { 0x20 } else { 0x10 };
+    // RTL_USER_PROCESS_PARAMETERS: Cwd (UNICODE_STRING) offset.
+    const PARAMS_CWD_OFFSET: usize = if IS_64BIT { 0x38 } else { 0x24 };
 
     unsafe extern "system" {
         fn OpenProcess(desired_access: u32, inherit_handle: i32, pid: u32) -> isize;

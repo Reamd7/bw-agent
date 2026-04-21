@@ -191,8 +191,8 @@
 
 | # | 问题 | 位置 | 工作量 |
 |---|------|------|--------|
-| 8 | Windows PEB 偏移量硬编码（仅 64-bit） | `process.rs:333-335` | 1 天 |
-| 9 | LogTable SSH 解析仅覆盖 3 种操作 | `LogTable.tsx:62-66` | 0.5 天 |
+| ~~8~~ | ~~Windows PEB 偏移量硬编码（仅 64-bit）~~ ✅ 已修复 (v0.2.1) | `process.rs:333-335` | ~~1 天~~ |
+| ~~9~~ | ~~LogTable SSH 解析仅覆盖 3 种操作~~ ✅ 已覆盖 | `LogTable.tsx:62-66` | ~~0.5 天~~ |
 | ~~10~~ | ~~无数据库迁移框架~~ ✅ 已缓解 (v0.2.1) | `access_log.rs:60` | ~~1 天~~ |
 | 11 | git config 解析为手写字符串处理 | `git_context.rs:144-175` | 1-2 天 |
 | 12 | 无 Crash Dump / Panic Handler | 全局 | 1 天 |
