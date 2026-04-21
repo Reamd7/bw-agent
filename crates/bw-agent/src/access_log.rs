@@ -60,9 +60,11 @@ impl AccessLog {
         )?;
 
         // Migration: add column if table already exists without it.
-        let _ = conn.execute_batch(
+        if let Err(e) = conn.execute_batch(
             "ALTER TABLE access_log ADD COLUMN process_chain TEXT NOT NULL DEFAULT '[]'",
-        );
+        ) {
+            log::debug!("access_log migration skipped (column may already exist): {e}");
+        }
 
         Ok(())
     }

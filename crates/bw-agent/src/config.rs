@@ -43,7 +43,7 @@ impl LockMode {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct Config {
     pub email: Option<String>,
     pub base_url: Option<String>,
@@ -58,7 +58,38 @@ pub struct Config {
     #[serde(default, skip_serializing)]
     lock_timeout: Option<u64>,
 
+    /// Timeout for SSH approval requests in seconds. Default: 30.
+    #[serde(default = "default_approval_timeout_secs")]
+    pub approval_timeout_secs: u64,
+
+    /// Maximum login retry attempts. Default: 3.
+    #[serde(default = "default_max_login_attempts")]
+    pub max_login_attempts: u32,
+
     pub proxy: Option<String>,
+}
+
+const fn default_approval_timeout_secs() -> u64 {
+    30
+}
+
+const fn default_max_login_attempts() -> u32 {
+    3
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            email: None,
+            base_url: None,
+            identity_url: None,
+            lock_mode: LockMode::default(),
+            lock_timeout: None,
+            approval_timeout_secs: default_approval_timeout_secs(),
+            max_login_attempts: default_max_login_attempts(),
+            proxy: None,
+        }
+    }
 }
 
 impl Config {
@@ -171,6 +202,12 @@ impl Config {
                 config_file_path().display()
             );
         }
+        if self.approval_timeout_secs < 5 {
+            anyhow::bail!("approval_timeout_secs must be at least 5 seconds");
+        }
+        if self.max_login_attempts < 1 {
+            anyhow::bail!("max_login_attempts must be at least 1");
+        }
         Ok(())
     }
 }
@@ -203,6 +240,8 @@ mod tests {
         assert_eq!(config.api_url(), "https://api.bitwarden.com");
         assert_eq!(config.identity_url(), "https://identity.bitwarden.com");
         assert_eq!(config.lock_mode, LockMode::Timeout { seconds: 900 });
+        assert_eq!(config.approval_timeout_secs, 30);
+        assert_eq!(config.max_login_attempts, 3);
     }
 
     #[test]
@@ -252,6 +291,26 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_fails_when_approval_timeout_too_low() {
+        let config = Config {
+            email: Some("user@example.com".to_string()),
+            approval_timeout_secs: 4,
+            ..Config::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_fails_when_max_login_attempts_too_low() {
+        let config = Config {
+            email: Some("user@example.com".to_string()),
+            max_login_attempts: 0,
+            ..Config::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
     fn test_config_roundtrip_json() {
         let config = Config {
             email: Some("test@test.com".to_string()),
@@ -259,6 +318,8 @@ mod tests {
             identity_url: None,
             lock_mode: LockMode::Timeout { seconds: 600 },
             lock_timeout: None,
+            approval_timeout_secs: 30,
+            max_login_attempts: 3,
             proxy: Some("http://127.0.0.1:7890".to_string()),
         };
         let json = serde_json::to_string_pretty(&config).unwrap();
@@ -266,6 +327,16 @@ mod tests {
         assert_eq!(deserialized.email, config.email);
         assert_eq!(deserialized.base_url, config.base_url);
         assert_eq!(deserialized.lock_mode, LockMode::Timeout { seconds: 600 });
+        assert_eq!(deserialized.approval_timeout_secs, 30);
+        assert_eq!(deserialized.max_login_attempts, 3);
+    }
+
+    #[test]
+    fn test_new_fields_default_when_missing_from_json() {
+        let json = r#"{"email":"test@test.com"}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.approval_timeout_secs, 30);
+        assert_eq!(config.max_login_attempts, 3);
     }
 
     #[test]

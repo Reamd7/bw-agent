@@ -6,11 +6,14 @@ pub async fn ensure_unlocked<U: crate::UiCallback>(
     state: Arc<Mutex<State>>,
     client: &bw_core::api::Client,
     ui: &U,
+    max_attempts: u32,
 ) -> anyhow::Result<()> {
-    let is_unlocked = state.lock().await.is_unlocked();
-    if is_unlocked {
-        state.lock().await.touch();
-        return Ok(());
+    {
+        let mut state = state.lock().await;
+        if state.is_unlocked() {
+            state.touch();
+            return Ok(());
+        }
     }
 
     let email = state
@@ -21,7 +24,7 @@ pub async fn ensure_unlocked<U: crate::UiCallback>(
         .ok_or_else(|| anyhow::anyhow!("Email not configured"))?;
 
     let mut error: Option<String> = None;
-    for _attempt in 0..3 {
+    for _attempt in 0..max_attempts {
         let password_str = ui
             .request_password(&email, error.as_deref())
             .await
@@ -39,7 +42,7 @@ pub async fn ensure_unlocked<U: crate::UiCallback>(
         }
     }
 
-    anyhow::bail!("Failed to unlock after 3 attempts");
+    anyhow::bail!("Failed to unlock after {max_attempts} attempts");
 }
 
 async fn try_login<U: crate::UiCallback>(

@@ -62,7 +62,10 @@ pub fn setup_tray(app: &App) -> tauri::Result<()> {
                             log::debug!("Cleared pending two-factor login state");
                         }
                     }
-                    let _ = crate::events::emit_lock_state_changed(&state.app_handle, true);
+                    if let Err(e) = crate::events::emit_lock_state_changed(&state.app_handle, true)
+                    {
+                        log::warn!("Failed to emit lock-state-changed: {e}");
+                    }
                 });
             }
             MENU_QUIT => std::process::exit(0),

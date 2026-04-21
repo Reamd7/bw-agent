@@ -329,6 +329,7 @@ fn start_background_tasks(
     pending_two_factor: Arc<Mutex<Option<PendingTwoFactor>>>,
 ) {
     tauri::async_runtime::spawn(async move {
+        const SYNC_INTERVAL_TICKS: u64 = 12; // 12 * 5s = 60s
         let mut tick_count: u64 = 0;
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
         interval.tick().await; // Skip the first immediate tick
@@ -350,13 +351,15 @@ fn start_background_tasks(
                         pending.take();
                     }
                     log::info!("Vault TTL expired — locking and notifying frontend");
-                    let _ = events::emit_lock_state_changed(&app_handle, true);
+                    if let Err(e) = events::emit_lock_state_changed(&app_handle, true) {
+                        log::warn!("Failed to emit lock-state-changed: {e}");
+                    }
                     continue;
                 }
             }
 
             // ── Periodic sync (every 60s = 12 ticks of 5s) ──────────
-            if tick_count % 12 != 0 {
+            if tick_count % SYNC_INTERVAL_TICKS != 0 {
                 continue;
             }
 
@@ -399,14 +402,14 @@ fn start_background_tasks(
                             state.entries = sync_data.entries;
                             state.protected_org_keys = sync_data.org_keys;
                             log::debug!("Periodic sync: updated {} entries", state.entries.len());
-                            if let Err(emit_error) = events::emit_vault_synced(
+                            if let Err(e) = events::emit_vault_synced(
                                 &app_handle,
                                 events::VaultSyncedPayload {
                                     success: true,
                                     error: None,
                                 },
                             ) {
-                                log::warn!("Failed to emit vault_synced event: {emit_error}");
+                                log::warn!("Failed to emit vault-synced: {e}");
                             }
                         }
                     }
@@ -420,21 +423,21 @@ fn start_background_tasks(
                         if is_auth_error {
                             log::warn!("Auth failure during sync — forcing re-login");
                             agent_state.lock().await.clear();
-                            if let Err(emit_error) =
+                            if let Err(e) =
                                 events::emit_lock_state_changed(&app_handle, true)
                             {
-                                log::warn!("Failed to emit lock_state_changed event: {emit_error}");
+                                log::warn!("Failed to emit lock-state-changed: {e}");
                             }
                         }
 
-                        if let Err(emit_error) = events::emit_vault_synced(
+                        if let Err(e) = events::emit_vault_synced(
                             &app_handle,
                             events::VaultSyncedPayload {
                                 success: false,
                                 error: Some(error_msg),
                             },
                         ) {
-                            log::warn!("Failed to emit vault_synced event: {emit_error}");
+                            log::warn!("Failed to emit vault-synced: {e}");
                         }
                     }
                 }
