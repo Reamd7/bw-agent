@@ -94,6 +94,9 @@ jobs:
       # follow-up task.
       # -----------------------------------------------------------------------
 
+      - name: Touch tauri.conf.json to embed latest icons
+        run: touch src-tauri/tauri.conf.json
+
       - name: Build CLI sidecar
         shell: bash
         run: |
