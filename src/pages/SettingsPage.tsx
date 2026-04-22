@@ -161,23 +161,29 @@ export default function SettingsPage() {
 
   const signChecks = () => (
     <ul class="mt-2 space-y-1 text-sm">
-      <li class="flex items-center gap-1.5 flex-wrap">
-        <span>{gitSigningStatus()?.program_correct ? "✅" : "❌"}</span>
-        <span>gpg.ssh.program</span>
+      <li class="flex items-center gap-2">
+        <span class={gitSigningStatus()?.program_correct ? "text-[var(--success)]" : "text-[var(--danger)]"}>
+          {gitSigningStatus()?.program_correct ? "\u2705" : "\u274C"}
+        </span>
+        <span style={`color: var(--text-primary)`}>gpg.ssh.program</span>
         <Show when={gitSigningStatus()?.program_correct && gitSigningStatus()?.ssh_program}>
-          <span class="break-all">({gitSigningStatus()?.ssh_program})</span>
+          <span class="text-xs break-all" style={`color: var(--text-tertiary)`}>({gitSigningStatus()?.ssh_program})</span>
         </Show>
         <Show when={!gitSigningStatus()?.program_correct && gitSigningStatus()?.ssh_program != null}>
-          <span class="text-xs opacity-75 break-all">(current: {gitSigningStatus()?.ssh_program})</span>
+          <span class="text-xs opacity-75 break-all" style={`color: var(--text-tertiary)`}>(current: {gitSigningStatus()?.ssh_program})</span>
         </Show>
       </li>
-      <li class="flex items-center gap-1.5">
-        <span>{gitSigningStatus()?.format_correct ? "✅" : "❌"}</span>
-        <span>gpg.format = ssh</span>
+      <li class="flex items-center gap-2">
+        <span class={gitSigningStatus()?.format_correct ? "text-[var(--success)]" : "text-[var(--danger)]"}>
+          {gitSigningStatus()?.format_correct ? "\u2705" : "\u274C"}
+        </span>
+        <span style={`color: var(--text-primary)`}>gpg.format = ssh</span>
       </li>
-      <li class="flex items-center gap-1.5">
-        <span>{gitSigningStatus()?.signing_enabled ? "✅" : "❌"}</span>
-        <span>commit.gpgsign = true</span>
+      <li class="flex items-center gap-2">
+        <span class={gitSigningStatus()?.signing_enabled ? "text-[var(--success)]" : "text-[var(--danger)]"}>
+          {gitSigningStatus()?.signing_enabled ? "\u2705" : "\u274C"}
+        </span>
+        <span style={`color: var(--text-primary)`}>commit.gpgsign = true</span>
       </li>
     </ul>
   );
@@ -187,274 +193,262 @@ export default function SettingsPage() {
   };
 
   return (
-    <div class="min-h-screen bg-gray-50 py-10">
-      <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
-        <div class="mb-8 flex items-center justify-between">
-          <div class="flex items-center">
-            <button
-              onClick={goBack}
-              class="mr-4 rounded-full p-2 text-gray-400 hover:bg-gray-200 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-            </button>
-            <h1 class="text-2xl font-bold text-gray-900">Settings</h1>
-          </div>
+    <div class="min-h-screen" style={`background: var(--bg-secondary)`}>
+      <div class="mx-auto max-w-2xl px-4 py-8">
+        {/* Header */}
+        <div class="mb-6 flex items-center gap-3">
+          <button
+            onClick={goBack}
+            class="btn-ghost"
+            style={{ "border-radius": "var(--radius-md)", padding: "8px" }}
+          >
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+            </svg>
+          </button>
+          <h1 class="text-lg font-semibold" style={`color: var(--text-primary)`}>Settings</h1>
         </div>
 
+        {/* Toast */}
         <Show when={toast()}>
           {(t) => (
-            <div
-              class={`mb-6 rounded-md p-4 ${
-                t().type === "success" ? "bg-green-50" : "bg-red-50"
-              }`}
-            >
-              <div class="flex">
-                <div class="flex-shrink-0">
-                  {t().type === "success" ? (
-                    <svg class="h-5 w-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  ) : (
-                    <svg class="h-5 w-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  )}
-                </div>
-                <div class="ml-3">
-                  <p
-                    class={`text-sm font-medium ${
-                      t().type === "success" ? "text-green-800" : "text-red-800"
-                    }`}
-                  >
-                    {t().message}
-                  </p>
-                </div>
-              </div>
+            <div class={`toast mb-4 ${t().type === "success" ? "toast-success" : "toast-error"}`}>
+              <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                {t().type === "success"
+                  ? <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  : <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                }
+              </svg>
+              {t().message}
             </div>
           )}
         </Show>
 
-        <div class="overflow-hidden rounded-lg bg-white shadow">
-          <Show
-            when={!loading()}
-            fallback={<div class="p-8 text-center text-gray-500">Loading settings...</div>}
-          >
-            <form onSubmit={handleSubmit} class="divide-y divide-gray-200">
-              <div class="p-6 sm:p-8">
-                <div class="grid grid-cols-1 gap-y-6 sm:grid-cols-6 sm:gap-x-6">
-                  <div class="sm:col-span-6">
-                    <h2 class="text-lg font-medium leading-6 text-gray-900">Account</h2>
-                    <p class="mt-1 text-sm text-gray-500">
-                      Your Bitwarden account details.
-                    </p>
-                  </div>
+        <Show
+          when={!loading()}
+          fallback={
+            <div class="flex items-center justify-center py-20">
+              <svg class="w-6 h-6 animate-spin" style={`color: var(--text-tertiary)`} fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            </div>
+          }
+        >
+          <form onSubmit={handleSubmit} class="space-y-4">
+            {/* Account Section */}
+            <div class="card" style={{ padding: "24px" }}>
+              <div class="flex items-center gap-2 mb-4">
+                <svg class="w-4 h-4" style={`color: var(--text-tertiary)`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                </svg>
+                <h2 class="text-sm font-semibold" style={`color: var(--text-primary)`}>Account</h2>
+              </div>
+              <p class="text-xs mb-4" style={`color: var(--text-tertiary)`}>Your Bitwarden account details.</p>
+              <div>
+                <label for="email" class="block text-xs font-medium mb-1.5" style={`color: var(--text-secondary)`}>
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  id="email"
+                  value={config().email || ""}
+                  onInput={(e) => updateField("email", e.currentTarget.value || null)}
+                  class="input"
+                  placeholder="you@example.com"
+                />
+              </div>
+            </div>
 
-                  <div class="sm:col-span-4">
-                    <label for="email" class="block text-sm font-medium text-gray-700">
-                      Email Address
-                    </label>
-                    <div class="mt-1">
-                      <input
-                        type="email"
-                        id="email"
-                        value={config().email || ""}
-                        onInput={(e) => updateField("email", e.currentTarget.value || null)}
-                        class="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                        placeholder="you@example.com"
-                      />
-                    </div>
-                  </div>
+            {/* Server Configuration */}
+            <div class="card" style={{ padding: "24px" }}>
+              <div class="flex items-center gap-2 mb-4">
+                <svg class="w-4 h-4" style={`color: var(--text-tertiary)`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z" />
+                </svg>
+                <h2 class="text-sm font-semibold" style={`color: var(--text-primary)`}>Server</h2>
+              </div>
+              <p class="text-xs mb-4" style={`color: var(--text-tertiary)`}>Configure your self-hosted Bitwarden server.</p>
+              <div>
+                <label for="base_url" class="block text-xs font-medium mb-1.5" style={`color: var(--text-secondary)`}>
+                  Server URL
+                </label>
+                <input
+                  type="url"
+                  id="base_url"
+                  value={config().base_url || ""}
+                  onInput={(e) => updateField("base_url", e.currentTarget.value || null)}
+                  class="input"
+                  placeholder="https://bitwarden.example.com"
+                />
+              </div>
+            </div>
 
-                  <div class="sm:col-span-6 pt-6">
-                    <h2 class="text-lg font-medium leading-6 text-gray-900">Server Configuration</h2>
-                    <p class="mt-1 text-sm text-gray-500">
-                      Configure your self-hosted Bitwarden server if applicable.
-                    </p>
+            {/* Security */}
+            <div class="card" style={{ padding: "24px" }}>
+              <div class="flex items-center gap-2 mb-4">
+                <svg class="w-4 h-4" style={`color: var(--text-tertiary)`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                </svg>
+                <h2 class="text-sm font-semibold" style={`color: var(--text-primary)`}>Security</h2>
+              </div>
+              <p class="text-xs mb-4" style={`color: var(--text-tertiary)`}>Manage how the agent secures your keys.</p>
+              <div>
+                <label for="lock_mode" class="block text-xs font-medium mb-1.5" style={`color: var(--text-secondary)`}>
+                  Vault Timeout
+                </label>
+                <select
+                  id="lock_mode"
+                  value={lockPreset()}
+                  onChange={(e) => handlePresetChange(e.currentTarget.value)}
+                  class="input"
+                  style={{ "padding-right": "36px", appearance: "none", backgroundImage: "url(\"data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e\")", backgroundPosition: "right 8px center", backgroundRepeat: "no-repeat", backgroundSize: "20px" }}
+                >
+                  <optgroup label="Time-based">
+                    <option value="1m">1 Minute</option>
+                    <option value="5m">5 Minutes</option>
+                    <option value="15m">15 Minutes</option>
+                    <option value="30m">30 Minutes</option>
+                    <option value="1h">1 Hour</option>
+                    <option value="4h">4 Hours</option>
+                    <option value="custom">Custom...</option>
+                  </optgroup>
+                  <optgroup label="System Events">
+                    <option value="idle">On System Idle</option>
+                    <option value="sleep">On System Sleep</option>
+                    <option value="lock">On Screen Lock</option>
+                    <option value="restart">On Restart</option>
+                  </optgroup>
+                  <option value="never">Never</option>
+                </select>
+                
+                <Show when={lockPreset() === "custom"}>
+                  <div class="mt-2 flex items-center gap-2">
+                    <input
+                      type="number"
+                      id="custom_seconds"
+                      min="1"
+                      value={config().lock_mode.type === "timeout" ? (config().lock_mode as any).seconds : 900}
+                      onInput={(e) => {
+                        const val = parseInt(e.currentTarget.value) || 0;
+                        setConfig(prev => ({ ...prev, lock_mode: { type: "timeout", seconds: val } }));
+                      }}
+                      class="input"
+                      style={{ width: "120px" }}
+                      placeholder="Seconds"
+                    />
+                    <span class="text-sm" style={`color: var(--text-tertiary)`}>seconds</span>
                   </div>
+                </Show>
 
-                  <div class="sm:col-span-6">
-                    <label for="base_url" class="block text-sm font-medium text-gray-700">
-                      Server URL
-                    </label>
-                    <div class="mt-1">
-                      <input
-                        type="url"
-                        id="base_url"
-                        value={config().base_url || ""}
-                        onInput={(e) => updateField("base_url", e.currentTarget.value || null)}
-                        class="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                        placeholder="https://bitwarden.example.com"
-                      />
-                    </div>
+                <Show when={lockPreset() === "idle"}>
+                  <div class="mt-2 flex items-center gap-2">
+                    <input
+                      type="number"
+                      id="idle_seconds"
+                      min="1"
+                      value={config().lock_mode.type === "system_idle" ? (config().lock_mode as any).seconds : 300}
+                      onInput={(e) => {
+                        const val = parseInt(e.currentTarget.value) || 0;
+                        setConfig(prev => ({ ...prev, lock_mode: { type: "system_idle", seconds: val } }));
+                      }}
+                      class="input"
+                      style={{ width: "120px" }}
+                      placeholder="Seconds"
+                    />
+                    <span class="text-sm" style={`color: var(--text-tertiary)`}>seconds</span>
                   </div>
+                </Show>
+              </div>
+            </div>
 
-                  <div class="sm:col-span-6 pt-6">
-                    <h2 class="text-lg font-medium leading-6 text-gray-900">Security</h2>
-                    <p class="mt-1 text-sm text-gray-500">
-                      Manage how the agent secures your keys.
-                    </p>
-                  </div>
+            {/* Network */}
+            <div class="card" style={{ padding: "24px" }}>
+              <div class="flex items-center gap-2 mb-4">
+                <svg class="w-4 h-4" style={`color: var(--text-tertiary)`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
+                </svg>
+                <h2 class="text-sm font-semibold" style={`color: var(--text-primary)`}>Network</h2>
+              </div>
+              <div>
+                <label for="proxy" class="block text-xs font-medium mb-1.5" style={`color: var(--text-secondary)`}>
+                  Proxy URL
+                </label>
+                <input
+                  type="text"
+                  id="proxy"
+                  value={config().proxy || ""}
+                  onInput={(e) => updateField("proxy", e.currentTarget.value || null)}
+                  class="input"
+                  placeholder="http://proxy.example.com:8080"
+                />
+              </div>
+            </div>
 
-                  <div class="sm:col-span-3">
-                    <label for="lock_mode" class="block text-sm font-medium text-gray-700">
-                      Vault Timeout
-                    </label>
-                    <div class="mt-1">
-                      <select
-                        id="lock_mode"
-                        value={lockPreset()}
-                        onChange={(e) => handlePresetChange(e.currentTarget.value)}
-                        class="block w-full rounded-md border-gray-300 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                      >
-                        <optgroup label="Time-based">
-                          <option value="1m">1 Minute</option>
-                          <option value="5m">5 Minutes</option>
-                          <option value="15m">15 Minutes</option>
-                          <option value="30m">30 Minutes</option>
-                          <option value="1h">1 Hour</option>
-                          <option value="4h">4 Hours</option>
-                          <option value="custom">Custom...</option>
-                        </optgroup>
-                        <optgroup label="System Events">
-                          <option value="idle">On System Idle</option>
-                          <option value="sleep">On System Sleep</option>
-                          <option value="lock">On Screen Lock</option>
-                          <option value="restart">On Restart</option>
-                        </optgroup>
-                        <option value="never">Never</option>
-                      </select>
-                    </div>
-                    
-                    <Show when={lockPreset() === "custom"}>
-                      <div class="mt-2">
-                        <label for="custom_seconds" class="sr-only">Seconds</label>
-                        <div class="flex items-center">
-                          <input
-                            type="number"
-                            id="custom_seconds"
-                            min="1"
-                            value={config().lock_mode.type === "timeout" ? (config().lock_mode as any).seconds : 900}
-                            onInput={(e) => {
-                              const val = parseInt(e.currentTarget.value) || 0;
-                              setConfig(prev => ({ ...prev, lock_mode: { type: "timeout", seconds: val } }));
-                            }}
-                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                            placeholder="Seconds"
-                          />
-                          <span class="ml-2 text-sm text-gray-500">seconds</span>
+            {/* Git Signing */}
+            <div class="card" style={{ padding: "24px" }}>
+              <div class="flex items-center gap-2 mb-4">
+                <svg class="w-4 h-4" style={`color: var(--text-tertiary)`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+                </svg>
+                <h2 class="text-sm font-semibold" style={`color: var(--text-primary)`}>Git Signing</h2>
+              </div>
+              <p class="text-xs mb-4" style={`color: var(--text-tertiary)`}>
+                Configure git to use bw-agent for SSH commit signing.
+              </p>
+              <Show
+                when={allCorrect()}
+                fallback={
+                  <div class="rounded-lg p-4" style={`background: var(--warning-bg); border: 1px solid #fde68a`}>
+                    <div class="flex items-start gap-3">
+                      <svg class="h-4 w-4 mt-0.5 shrink-0" style={`color: var(--warning)`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                      </svg>
+                      <div class="flex-1">
+                        <p class="text-sm font-medium" style={`color: var(--warning-text)`}>Git SSH signing is not fully configured</p>
+                        {signChecks()}
+                        <div class="mt-3">
+                          <button
+                            type="button"
+                            onClick={handleConfigureGitSigning}
+                            disabled={configuring()}
+                            class="btn btn-secondary text-xs"
+                            style={{ "border-color": "var(--warning)", color: "var(--warning-text)" }}
+                          >
+                            {configuring() ? "Configuring..." : "Configure Git SSH Signing"}
+                          </button>
                         </div>
                       </div>
-                    </Show>
-
-                    <Show when={lockPreset() === "idle"}>
-                      <div class="mt-2">
-                        <label for="idle_seconds" class="sr-only">Idle Duration (seconds)</label>
-                        <div class="flex items-center">
-                          <input
-                            type="number"
-                            id="idle_seconds"
-                            min="1"
-                            value={config().lock_mode.type === "system_idle" ? (config().lock_mode as any).seconds : 300}
-                            onInput={(e) => {
-                              const val = parseInt(e.currentTarget.value) || 0;
-                              setConfig(prev => ({ ...prev, lock_mode: { type: "system_idle", seconds: val } }));
-                            }}
-                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                            placeholder="Seconds"
-                          />
-                          <span class="ml-2 text-sm text-gray-500">seconds</span>
-                        </div>
-                      </div>
-                    </Show>
-                  </div>
-
-                  <div class="sm:col-span-6 pt-6">
-                    <h2 class="text-lg font-medium leading-6 text-gray-900">Network</h2>
-                  </div>
-
-                  <div class="sm:col-span-6">
-                    <label for="proxy" class="block text-sm font-medium text-gray-700">
-                      Proxy URL
-                    </label>
-                    <div class="mt-1">
-                      <input
-                        type="text"
-                        id="proxy"
-                        value={config().proxy || ""}
-                        onInput={(e) => updateField("proxy", e.currentTarget.value || null)}
-                        class="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                        placeholder="http://proxy.example.com:8080"
-                      />
                     </div>
                   </div>
-
-                  <div class="sm:col-span-6 pt-6">
-                    <h2 class="text-lg font-medium leading-6 text-gray-900">Git Signing</h2>
-                    <p class="mt-1 text-sm text-gray-500">
-                      Configure git to use bw-agent for SSH commit signing.
-                    </p>
-                  </div>
-
-                  <div class="sm:col-span-6">
-                    <Show
-                      when={allCorrect()}
-                      fallback={
-                        <div class="rounded-md bg-yellow-50 p-4">
-                          <div class="flex">
-                            <div class="flex-shrink-0">
-                              <svg class="h-5 w-5 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                              </svg>
-                            </div>
-                            <div class="ml-3 flex-1">
-                              <p class="text-sm font-medium text-yellow-800">Git SSH signing is not fully configured</p>
-                              {signChecks()}
-                              <div class="mt-3">
-                                <button
-                                  type="button"
-                                  onClick={handleConfigureGitSigning}
-                                  disabled={configuring()}
-                                  class="inline-flex items-center rounded-md bg-yellow-50 px-3 py-2 text-sm font-medium text-yellow-800 hover:bg-yellow-100 focus:outline-none focus:ring-2 focus:ring-yellow-600 focus:ring-offset-2 focus:ring-offset-yellow-50 disabled:opacity-50"
-                                >
-                                  {configuring() ? "Configuring..." : "Configure Git SSH Signing"}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      }
-                    >
-                      <div class="rounded-md bg-green-50 p-4">
-                        <div class="flex">
-                          <div class="flex-shrink-0">
-                            <svg class="h-5 w-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                          </div>
-                          <div class="ml-3">
-                            <p class="text-sm font-medium text-green-800">Git SSH signing is configured</p>
-                            {signChecks()}
-                          </div>
-                        </div>
-                      </div>
-                    </Show>
+                }
+              >
+                <div class="rounded-lg p-4" style={`background: var(--success-bg); border: 1px solid #a7f3d0`}>
+                  <div class="flex items-start gap-3">
+                    <svg class="h-4 w-4 mt-0.5 shrink-0" style={`color: var(--success)`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                    <div>
+                      <p class="text-sm font-medium" style={`color: var(--success-text)`}>Git SSH signing is configured</p>
+                      {signChecks()}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div class="bg-gray-50 px-4 py-3 text-right sm:px-6">
-                <button
-                  type="submit"
-                  disabled={saving()}
-                  class="inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
-                >
-                  {saving() ? "Saving..." : "Save Settings"}
-                </button>
-              </div>
-            </form>
-          </Show>
-        </div>
+              </Show>
+            </div>
+
+            {/* Save */}
+            <div class="flex justify-end pt-2 pb-8">
+              <button
+                type="submit"
+                disabled={saving()}
+                class="btn btn-primary"
+              >
+                {saving() ? "Saving..." : "Save Settings"}
+              </button>
+            </div>
+          </form>
+        </Show>
       </div>
     </div>
   );

@@ -38,9 +38,9 @@ export default function TotpInput(props: TotpInputProps) {
         onInput={handleInput}
         disabled={props.disabled}
         placeholder="000000"
-        class="w-48 text-center text-2xl tracking-[0.5em] font-mono px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-md text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 transition-all"
+        class="input text-center text-2xl tracking-[0.5em] font-mono px-4 py-3 w-52"
       />
-      <p class="text-sm text-zinc-400">Enter 6-digit authenticator code</p>
+      <p class="text-[13px] text-[var(--text-tertiary)]">Enter 6-digit authenticator code</p>
     </div>
   );
 }

@@ -155,16 +155,17 @@ function CmdlineText(props: { text: string }) {
   return (
     <Show
       when={isLong()}
-      fallback={<div class="mt-0.5 font-mono text-gray-600 break-all">{props.text}</div>}
+      fallback={<div class="mt-0.5 font-mono text-xs break-all" style={`color: var(--text-secondary)`}>{props.text}</div>}
     >
-      <div class="mt-0.5 font-mono text-gray-600">
+      <div class="mt-0.5 font-mono text-xs" style={`color: var(--text-secondary)`}>
         <Show
           when={expanded()}
           fallback={
             <div class="break-all">
               {props.text.slice(0, 120)}...
               <button
-                class="ml-1 text-blue-500 hover:text-blue-700 font-sans text-xs"
+                class="ml-1 font-sans text-xs"
+                style={`color: var(--brand-500)`}
                 onClick={(e) => {
                   e.stopPropagation();
                   setExpanded(true);
@@ -178,7 +179,8 @@ function CmdlineText(props: { text: string }) {
           <div class="break-all">
             {props.text}
             <button
-              class="ml-1 text-blue-500 hover:text-blue-700 font-sans text-xs"
+              class="ml-1 font-sans text-xs"
+              style={`color: var(--brand-500)`}
               onClick={(e) => {
                 e.stopPropagation();
                 setExpanded(false);
@@ -214,73 +216,56 @@ function LogDetailModal(props: { log: AccessLogEntry; onClose: () => void }) {
 
   return (
     <div
-      class="fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-gray-900/50 p-4"
+      class="overlay"
       onClick={props.onClose}
       onKeyDown={handleKeyDown}
       tabIndex={-1}
       ref={(el) => el?.focus()}
     >
-      <div
-        class="relative w-full max-w-lg max-h-[85vh] flex flex-col rounded-xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header - fixed */}
-        <div class="flex items-center justify-between p-6 pb-0">
+      <div class="modal" style={{ "max-width": "520px" }} onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div class="flex items-center justify-between px-6 pt-6 pb-0">
           <div class="flex items-center gap-3">
-            <h3 class="text-lg font-bold text-gray-900">Log Detail</h3>
-            <span
-              class={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                props.log.approved
-                  ? "bg-green-100 text-green-800"
-                  : "bg-red-100 text-red-800"
-              }`}
-            >
+            <h3 class="text-base font-semibold" style={`color: var(--text-primary)`}>Log Detail</h3>
+            <span class={`badge ${props.log.approved ? "badge-success" : "badge-danger"}`}>
               {props.log.approved ? "Approved" : "Denied"}
             </span>
           </div>
           <button
-            class="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            class="btn-ghost"
+            style={{ "border-radius": "var(--radius-md)", padding: "6px" }}
             onClick={props.onClose}
           >
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M6 18L18 6M6 6l12 12"
-              />
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
         {/* Scrollable content */}
-        <div class="overflow-y-auto p-6 pt-4">
-          <div class="space-y-3 text-sm">
-            <div class="flex justify-between">
-              <span class="font-medium text-gray-500">Time:</span>
-              <span class="text-gray-900">{formatTime(props.log.timestamp)}</span>
+        <div class="overflow-y-auto px-6 py-4" style={{ "max-height": "60vh" }}>
+          <div class="space-y-3">
+            <div class="flex justify-between text-sm">
+              <span style={`color: var(--text-tertiary)`}>Time</span>
+              <span style={`color: var(--text-primary)`}>{formatTime(props.log.timestamp)}</span>
             </div>
-
-            <div class="flex justify-between">
-              <span class="font-medium text-gray-500">Operation:</span>
-              <span class="font-semibold text-gray-900">{sshInfo().operation}</span>
+            <div class="flex justify-between text-sm">
+              <span style={`color: var(--text-tertiary)`}>Operation</span>
+              <span class="font-medium" style={`color: var(--text-primary)`}>{sshInfo().operation}</span>
             </div>
-
-            <div class="flex justify-between">
-              <span class="font-medium text-gray-500">Target:</span>
-              <span class="font-mono text-xs text-gray-900 break-all text-right max-w-[300px]">
+            <div class="flex justify-between text-sm">
+              <span class="shrink-0" style={`color: var(--text-tertiary)`}>Target</span>
+              <span class="font-mono text-xs text-right max-w-[300px] break-all" style={`color: var(--text-secondary)`}>
                 {sshInfo().target}
               </span>
             </div>
-
-            <div>
-              <span class="font-medium text-gray-500">Key: </span>
-              <span class="text-gray-900">{props.log.key_name}</span>
+            <div class="flex justify-between text-sm">
+              <span style={`color: var(--text-tertiary)`}>Key</span>
+              <span style={`color: var(--text-primary)`}>{props.log.key_name}</span>
             </div>
-
             <div>
-              <span class="font-medium text-gray-500">Fingerprint:</span>
-              <div class="mt-1 font-mono text-xs text-gray-700 break-all rounded bg-gray-50 p-2">
+              <span class="text-sm" style={`color: var(--text-tertiary)`}>Fingerprint</span>
+              <div class="mt-1 font-mono text-xs rounded-lg p-2.5 break-all" style={`background: var(--bg-secondary); color: var(--text-secondary)`}>
                 {props.log.key_fingerprint}
               </div>
             </div>
@@ -288,18 +273,18 @@ function LogDetailModal(props: { log: AccessLogEntry; onClose: () => void }) {
             {/* Process Chain */}
             <Show when={props.log.process_chain && props.log.process_chain.length > 0}>
               <div>
-                <span class="font-medium text-gray-500">Process Chain:</span>
+                <span class="text-sm" style={`color: var(--text-tertiary)`}>Process Chain</span>
                 <div class="mt-2 space-y-1">
                   <For each={props.log.process_chain}>
                     {(proc, index) => (
-                      <div class="flex items-start gap-2 rounded bg-gray-50 p-2 text-xs">
-                        <span class="shrink-0 font-mono text-gray-400">{index() + 1}.</span>
+                      <div class="flex items-start gap-2 rounded-lg p-2.5 text-xs" style={`background: var(--bg-secondary)`}>
+                        <span class="shrink-0 font-mono" style={`color: var(--text-tertiary)`}>{index() + 1}.</span>
                         <div class="min-w-0 flex-1">
                           <div class="flex items-center gap-2">
-                            <span class="font-semibold text-gray-900">
+                            <span class="font-semibold" style={`color: var(--text-primary)`}>
                               {extractExeName(proc.exe)}
                             </span>
-                            <span class="text-gray-400">PID: {proc.pid}</span>
+                            <span style={`color: var(--text-tertiary)`}>PID: {proc.pid}</span>
                           </div>
                           <Show when={proc.cmdline && proc.cmdline !== "unknown"}>
                             <CmdlineText text={proc.cmdline} />
@@ -310,7 +295,7 @@ function LogDetailModal(props: { log: AccessLogEntry; onClose: () => void }) {
                               extractExeName(proc.exe) !== proc.exe
                             }
                           >
-                            <div class="mt-0.5 text-gray-400 break-all">{proc.exe}</div>
+                            <div class="mt-0.5 break-all" style={`color: var(--text-tertiary)`}>{proc.exe}</div>
                           </Show>
                         </div>
                       </div>
@@ -322,9 +307,9 @@ function LogDetailModal(props: { log: AccessLogEntry; onClose: () => void }) {
 
             {/* Fallback for old logs without process chain */}
             <Show when={!props.log.process_chain || props.log.process_chain.length === 0}>
-              <div class="flex justify-between">
-                <span class="font-medium text-gray-500">Client:</span>
-                <span class="text-gray-900" title={props.log.client_exe}>
+              <div class="flex justify-between text-sm">
+                <span style={`color: var(--text-tertiary)`}>Client</span>
+                <span style={`color: var(--text-primary)`} title={props.log.client_exe}>
                   {extractExeName(props.log.client_exe)} (PID: {props.log.client_pid})
                 </span>
               </div>
@@ -332,11 +317,10 @@ function LogDetailModal(props: { log: AccessLogEntry; onClose: () => void }) {
           </div>
         </div>
 
-        {/* Footer - fixed */}
-        <div class="p-6 pt-0">
+        {/* Footer */}
+        <div class="px-6 pb-6">
           <button
-            type="button"
-            class="w-full rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+            class="btn btn-secondary w-full"
             onClick={props.onClose}
           >
             Close
@@ -347,106 +331,78 @@ function LogDetailModal(props: { log: AccessLogEntry; onClose: () => void }) {
   );
 }
 
-// --- Log Table ---
+// --- Log Table (Card List) ---
 
 export function LogTable(props: LogTableProps) {
   const [selectedLog, setSelectedLog] = createSignal<AccessLogEntry | null>(null);
 
   return (
     <>
-      <div class="overflow-hidden rounded-lg border border-gray-200 shadow-sm">
-        <table class="w-full table-fixed divide-y divide-gray-200">
-          <thead class="bg-gray-50">
-            <tr>
-              <th
-                scope="col"
-                class="w-[22%] px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-              >
-                Time
-              </th>
-              <th
-                scope="col"
-                class="w-[18%] px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-              >
-                Initiator
-              </th>
-              <th
-                scope="col"
-                class="w-[46%] px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-              >
-                Summary
-              </th>
-              <th
-                scope="col"
-                class="w-[14%] px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-              >
-                Status
-              </th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-200 bg-white">
-            <Show
-              when={props.logs.length > 0}
-              fallback={
-                <tr>
-                  <td
-                    colspan="4"
-                    class="px-4 py-4 text-center text-sm text-gray-500"
-                  >
-                    No access logs
-                  </td>
-                </tr>
-              }
-            >
-              <For each={props.logs}>
-                {(log, index) => {
-                  const sshInfo = parseSshCmdline(log.process_chain);
-                  const initiator = getInitiator(log.process_chain, log.client_exe);
+      <Show
+        when={props.logs.length > 0}
+        fallback={
+          <div class="card empty-state">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <h3>No access logs</h3>
+            <p>Logs will appear when keys are accessed.</p>
+          </div>
+        }
+      >
+        <div class="space-y-2">
+          <For each={props.logs}>
+            {(log) => {
+              const sshInfo = parseSshCmdline(log.process_chain);
+              const initiator = getInitiator(log.process_chain, log.client_exe);
 
-                  return (
-                    <tr
-                      class={`cursor-pointer transition-colors hover:bg-blue-50 ${
-                        index() % 2 === 0 ? "bg-white" : "bg-gray-50"
-                      }`}
-                      onClick={() => setSelectedLog(log)}
+              return (
+                <div
+                  class="card cursor-pointer"
+                  style={{ padding: "14px 20px" }}
+                  onClick={() => setSelectedLog(log)}
+                >
+                  <div class="flex items-center gap-4">
+                    {/* Status indicator */}
+                    <div
+                      class="flex h-8 w-8 items-center justify-center rounded-lg shrink-0"
+                      style={`background: ${log.approved ? "var(--success-bg)" : "var(--danger-bg)"}`}
                     >
-                      <td class="px-3 py-3 text-sm text-gray-500 truncate">
-                        {formatTime(log.timestamp)}
-                      </td>
+                      <svg class="h-4 w-4" style={`color: ${log.approved ? "var(--success)" : "var(--danger)"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        {log.approved
+                          ? <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                          : <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        }
+                      </svg>
+                    </div>
 
-                      <td class="px-3 py-3 text-sm font-medium text-gray-900 truncate">
-                        {initiator}
-                      </td>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center gap-2">
+                        <span class="text-sm font-medium" style={`color: var(--text-primary)`}>{initiator}</span>
+                        <span class="text-xs" style={`color: var(--text-tertiary)`}>&middot;</span>
+                        <span class="text-sm font-medium" style={`color: var(--text-secondary)`}>{sshInfo.operation}</span>
+                      </div>
+                      <div class="flex items-center gap-2 mt-0.5">
+                        <Show when={sshInfo.target !== "unknown"}>
+                          <span class="text-xs font-mono truncate" style={`color: var(--text-tertiary)`}>{sshInfo.target}</span>
+                        </Show>
+                      </div>
+                    </div>
 
-                      <td class="px-3 py-3 text-sm text-gray-700">
-                        <div class="truncate">
-                          <span class="font-medium">{sshInfo.operation}</span>
-                          <Show when={sshInfo.target !== "unknown"}>
-                            <span class="text-gray-400 mx-1">·</span>
-                            <span class="font-mono text-gray-600">{sshInfo.target}</span>
-                          </Show>
-                        </div>
-                      </td>
+                    <span class="text-xs shrink-0" style={`color: var(--text-tertiary)`}>
+                      {formatTime(log.timestamp)}
+                    </span>
 
-                      <td class="px-3 py-3 whitespace-nowrap text-sm">
-                        <span
-                          class={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                            log.approved
-                              ? "bg-green-100 text-green-800"
-                              : "bg-red-100 text-red-800"
-                          }`}
-                        >
-                          {log.approved ? "Approved" : "Denied"}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                }}
-              </For>
-            </Show>
-          </tbody>
-        </table>
-      </div>
+                    <span class={`badge ${log.approved ? "badge-success" : "badge-danger"} shrink-0`}>
+                      {log.approved ? "Approved" : "Denied"}
+                    </span>
+                  </div>
+                </div>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
 
       {/* Detail Modal */}
       <Show when={selectedLog()}>

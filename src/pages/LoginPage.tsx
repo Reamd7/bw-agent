@@ -226,13 +226,14 @@ export default function LoginPage() {
   };
 
   return (
-    <div class="min-h-screen flex flex-col items-center justify-center bg-gray-900 px-4">
+    <div class="login-bg min-h-screen flex flex-col items-center justify-center px-4">
       {/* Settings gear - top right */}
       <div class="fixed top-4 right-4">
         <button
           onClick={() => navigate("/settings")}
           disabled={busy()}
-          class="p-2 text-zinc-500 hover:text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-zinc-500"
+          class="btn-ghost"
+          style={{ "border-radius": "var(--radius-full)", padding: "8px" }}
           title="Settings"
         >
           <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -242,15 +243,29 @@ export default function LoginPage() {
         </button>
       </div>
 
-      <div class="w-full max-w-sm space-y-6">
+      <div class="login-card">
         {/* Header */}
-        <div class="text-center">
-          <h1 class="text-2xl font-bold text-white">Bitwarden SSH Agent</h1>
+        <div class="text-center mb-8">
+          {/* Vault icon */}
+          <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center">
+            <svg width="56" height="56" viewBox="0 0 100 100" fill="none">
+              <rect width="100" height="100" rx="18" fill="#4f46e5" />
+              <circle cx="50" cy="50" r="30" fill="#FFFFFF" />
+              <rect x="44" y="14" width="12" height="13" rx="3" fill="#4f46e5" />
+              <rect x="44" y="73" width="12" height="13" rx="3" fill="#4f46e5" />
+              <rect x="14" y="44" width="13" height="12" rx="3" fill="#4f46e5" />
+              <rect x="73" y="44" width="13" height="12" rx="3" fill="#4f46e5" />
+              <circle cx="50" cy="50" r="17" fill="#4f46e5" />
+              <circle cx="50" cy="46.5" r="5.5" fill="#FFFFFF" />
+              <path d="M46 53 L46.8 62 H53.2 L54 53 Z" fill="#FFFFFF" />
+            </svg>
+          </div>
+          <h1 class="text-xl font-semibold" style={`color: var(--text-primary)`}>Bitwarden SSH Agent</h1>
           <Show when={email()}>
-            <p class="mt-2 text-sm text-zinc-400">{email()}</p>
+            <p class="mt-1.5 text-sm" style={`color: var(--text-secondary)`}>{email()}</p>
           </Show>
           <Show when={serverUrl()}>
-            <p class="mt-1 text-xs text-zinc-500">{serverUrl()}</p>
+            <p class="mt-0.5 text-xs" style={`color: var(--text-tertiary)`}>{serverUrl()}</p>
           </Show>
         </div>
 
@@ -259,24 +274,26 @@ export default function LoginPage() {
         {/* Setup: Server choice */}
         <Show when={isSetup() && setupStage() === "server"}>
           <div class="space-y-4">
-            <p class="text-center text-sm text-zinc-400">Choose your Bitwarden server</p>
+            <p class="text-center text-sm" style={`color: var(--text-secondary)`}>Choose your Bitwarden server</p>
             <Show when={error()}>
-              <p class="text-center text-sm text-red-500">{error()}</p>
+              <p class="text-center text-sm" style={`color: var(--danger)`}>{error()}</p>
             </Show>
-            <div class="space-y-3">
+            <div class="space-y-2.5">
               <button
                 onClick={() => handleServerChoice("official")}
-                class="w-full py-3 px-4 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 hover:border-blue-500 rounded-lg text-left transition-colors"
+                class="card-flat w-full py-3 px-4 text-left transition-all hover:border-[var(--brand-200)] hover:bg-[var(--brand-50)]"
+                style={{ cursor: "pointer" }}
               >
-                <div class="font-medium text-zinc-100">Bitwarden Cloud</div>
-                <div class="text-xs text-zinc-400 mt-1">bitwarden.com</div>
+                <div class="font-medium text-sm" style={`color: var(--text-primary)`}>Bitwarden Cloud</div>
+                <div class="text-xs mt-0.5" style={`color: var(--text-tertiary)`}>bitwarden.com</div>
               </button>
               <button
                 onClick={() => handleServerChoice("self-hosted")}
-                class="w-full py-3 px-4 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 hover:border-blue-500 rounded-lg text-left transition-colors"
+                class="card-flat w-full py-3 px-4 text-left transition-all hover:border-[var(--brand-200)] hover:bg-[var(--brand-50)]"
+                style={{ cursor: "pointer" }}
               >
-                <div class="font-medium text-zinc-100">Self-hosted Server</div>
-                <div class="text-xs text-zinc-400 mt-1">Your own Bitwarden instance</div>
+                <div class="font-medium text-sm" style={`color: var(--text-primary)`}>Self-hosted Server</div>
+                <div class="text-xs mt-0.5" style={`color: var(--text-tertiary)`}>Your own Bitwarden instance</div>
               </button>
             </div>
           </div>
@@ -284,19 +301,19 @@ export default function LoginPage() {
 
         {/* Setup: Self-hosted URL input */}
         <Show when={isSetup() && setupStage() === "server" && serverChoice() === "self-hosted"}>
-          <div class="space-y-3" onKeyDown={handleSetupKeyDown}>
+          <div class="space-y-3 mt-4" onKeyDown={handleSetupKeyDown}>
             <input
               type="url"
               value={customUrl()}
               onInput={(e) => setCustomUrl(e.currentTarget.value)}
               placeholder="https://vault.example.com"
-              class="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-md text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+              class="input"
               autofocus
             />
             <button
               onClick={handleConfirmServer}
               disabled={!customUrl().trim()}
-              class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-md transition-colors"
+              class="btn btn-primary w-full"
             >
               Continue
             </button>
@@ -306,31 +323,34 @@ export default function LoginPage() {
         {/* Setup: Email input */}
         <Show when={isSetup() && setupStage() === "email"}>
           <div class="space-y-4" onKeyDown={handleSetupKeyDown}>
-            <p class="text-center text-sm text-zinc-400">Enter your Bitwarden email</p>
+            <p class="text-center text-sm" style={`color: var(--text-secondary)`}>Enter your Bitwarden email</p>
             <Show when={error()}>
-              <p class="text-center text-sm text-red-500">{error()}</p>
+              <p class="text-center text-sm" style={`color: var(--danger)`}>{error()}</p>
             </Show>
             <input
               type="email"
               value={setupEmail()}
               onInput={(e) => setSetupEmail(e.currentTarget.value)}
               placeholder="you@example.com"
-              class="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-md text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+              class="input"
               autofocus
             />
             <button
               onClick={handleSaveConfigAndContinue}
               disabled={!setupEmail().trim() || savingConfig()}
-              class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-md transition-colors"
+              class="btn btn-primary w-full"
             >
               {savingConfig() ? "Saving..." : "Continue"}
             </button>
             <button
               onClick={() => { setSetupStage("server"); setServerChoice(null); setError(undefined); }}
               disabled={savingConfig()}
-              class="w-full py-2 text-sm text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              class="btn btn-ghost w-full text-sm"
             >
-              ← Back to server selection
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Back to server selection
             </button>
           </div>
         </Show>
@@ -350,12 +370,20 @@ export default function LoginPage() {
             <button
               onClick={handleUnlock}
               disabled={stage() === "submitting" || !password().trim()}
-              class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900"
+              class="btn btn-primary w-full"
             >
-              {stage() === "submitting" ? "Unlocking..." : "Unlock"}
+              {stage() === "submitting" ? (
+                <>
+                  <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Unlocking...
+                </>
+              ) : "Unlock"}
             </button>
             <Show when={attempts() > 0 && attempts() < 3}>
-              <p class="text-center text-xs text-zinc-500">
+              <p class="text-center text-xs" style={`color: var(--text-tertiary)`}>
                 Attempt {attempts()} of 3
               </p>
             </Show>
@@ -365,11 +393,11 @@ export default function LoginPage() {
         {/* 2FA stage */}
         <Show when={!isSetup() && (stage() === "two_factor" || stage() === "submitting_2fa")}>
           <div class="space-y-4">
-            <p class="text-center text-sm text-zinc-300">
+            <p class="text-center text-sm font-medium" style={`color: var(--text-primary)`}>
               Two-factor authentication required
             </p>
             <Show when={error()}>
-              <p class="text-center text-sm text-red-500">{error()}</p>
+              <p class="text-center text-sm" style={`color: var(--danger)`}>{error()}</p>
             </Show>
             <Show when={providers().includes(0)}>
               <TotpInput
@@ -380,18 +408,26 @@ export default function LoginPage() {
             <button
               onClick={() => { setStage("password"); setError(undefined); }}
               disabled={stage() === "submitting_2fa"}
-              class="w-full py-2 text-sm text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              class="btn btn-ghost w-full text-sm"
             >
-              ← Back to password
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Back to password
             </button>
           </div>
         </Show>
 
         {/* Cooldown stage */}
         <Show when={!isSetup() && stage() === "cooldown"}>
-          <div class="text-center space-y-3">
-            <p class="text-red-400 font-medium">Too many failed attempts</p>
-            <p class="text-sm text-zinc-400">Please wait before trying again...</p>
+          <div class="text-center space-y-2">
+            <div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full" style={`background: var(--danger-bg)`}>
+              <svg class="h-5 w-5" style={`color: var(--danger)`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+            </div>
+            <p class="font-medium text-sm" style={`color: var(--danger)`}>Too many failed attempts</p>
+            <p class="text-sm" style={`color: var(--text-tertiary)`}>Please wait before trying again...</p>
           </div>
         </Show>
       </div>

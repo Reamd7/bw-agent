@@ -40,11 +40,6 @@ export default function DashboardPage() {
       setKeysLoading(false);
       setSynced(true);
     } catch {
-      // If we've previously had a successful fetch (synced), a failure
-      // means the vault has genuinely locked/expired.
-      // If we've never synced, this is just the initial race condition
-      // (background sync_and_unlock hasn't finished yet) — stay loading
-      // and wait for the vault-synced event to trigger a retry.
       if (synced()) {
         setStore("locked", true);
         navigate("/");
@@ -149,158 +144,222 @@ export default function DashboardPage() {
   };
 
   return (
-    <div class="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header class="bg-white shadow-sm">
-        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div class="flex h-16 justify-between items-center">
-            <div class="flex items-center">
-              <h1 class="text-xl font-bold text-gray-900">Bitwarden Agent</h1>
-            </div>
-            <div class="flex items-center space-x-4">
-              <span class="text-sm text-gray-500">{store.email}</span>
-              <button
-                onClick={handleSync}
-                disabled={syncing()}
-                class={`p-2 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                  syncing()
-                    ? "text-blue-500 cursor-wait"
-                    : "text-gray-400 hover:text-gray-500"
-                }`}
-                title="同步 Vault"
-              >
-                <svg class={`h-5 w-5 ${syncing() ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </button>
-              <button
-                onClick={() => navigate("/settings")}
-                class="p-2 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded-full"
-                title="Settings"
-              >
-                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </button>
-              <button
-                onClick={handleLock}
-                class="inline-flex items-center rounded-md border border-transparent bg-gray-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-              >
-                <svg class="-ml-1 mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-                Lock
-              </button>
-            </div>
+    <div class="flex h-screen" style={`background: var(--bg-secondary)`}>
+      {/* ── Sidebar ──────────────────────────────────────────────── */}
+      <aside
+        class="flex flex-col shrink-0 h-full border-r"
+        style={{
+          width: "var(--sidebar-width)",
+          background: "var(--bg-primary)",
+          "border-color": "var(--border-primary)",
+        }}
+      >
+        {/* Brand */}
+        <div class="flex items-center gap-2.5 px-5" style={`height: var(--header-height)`}>
+          <div class="flex h-8 w-8 items-center justify-center">
+            <svg width="32" height="32" viewBox="0 0 100 100" fill="none">
+              <rect width="100" height="100" rx="18" fill="#4f46e5" />
+              <circle cx="50" cy="50" r="30" fill="#FFFFFF" />
+              <rect x="44" y="14" width="12" height="13" rx="3" fill="#4f46e5" />
+              <rect x="44" y="73" width="12" height="13" rx="3" fill="#4f46e5" />
+              <rect x="14" y="44" width="13" height="12" rx="3" fill="#4f46e5" />
+              <rect x="73" y="44" width="13" height="12" rx="3" fill="#4f46e5" />
+              <circle cx="50" cy="50" r="17" fill="#4f46e5" />
+              <circle cx="50" cy="46.5" r="5.5" fill="#FFFFFF" />
+              <path d="M46 53 L46.8 62 H53.2 L54 53 Z" fill="#FFFFFF" />
+            </svg>
           </div>
+          <span class="text-sm font-semibold" style={`color: var(--text-primary)`}>BW Agent</span>
         </div>
-      </header>
 
-      <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
-        {/* Tabs */}
-        <div class="mb-8 border-b border-gray-200">
-          <nav class="-mb-px flex space-x-8" aria-label="Tabs">
-            <button
-              onClick={() => handleTabChange("keys")}
-              class={`${
-                activeTab() === "keys"
-                  ? "border-blue-500 text-blue-600"
-                  : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
-              } whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium`}
-            >
-              SSH Keys
-            </button>
-            <button
-              onClick={() => handleTabChange("logs")}
-              class={`${
-                activeTab() === "logs"
-                  ? "border-blue-500 text-blue-600"
-                  : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
-              } whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium`}
-            >
-              Access Logs
-            </button>
-            <button
-              onClick={() => handleTabChange("approvals")}
-              class={`${
-                activeTab() === "approvals"
-                  ? "border-blue-500 text-blue-600"
-                  : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
-              } whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium flex items-center`}
-            >
-              Pending Approvals
+        {/* Nav items */}
+        <div class="divider" style={{ margin: "0 16px" }}></div>
+        <nav class="flex-1 px-3 py-2 space-y-0.5">
+          <button
+            onClick={() => handleTabChange("keys")}
+            classList={{
+              "sidebar-item": true,
+              "active": activeTab() === "keys",
+            }}
+          >
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+            </svg>
+            SSH Keys
+          </button>
+          <button
+            onClick={() => handleTabChange("logs")}
+            classList={{
+              "sidebar-item": true,
+              "active": activeTab() === "logs",
+            }}
+          >
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Access Logs
+          </button>
+          <button
+            onClick={() => handleTabChange("approvals")}
+            classList={{
+              "sidebar-item": true,
+              "active": activeTab() === "approvals",
+            }}
+          >
+            <div class="flex items-center gap-2.5 w-full">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+              </svg>
+              <span class="flex-1 text-left">Approvals</span>
               <Show when={store.pendingApprovals.length > 0}>
-                <span class="ml-2 rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
+                <span class="badge badge-danger" style={{ "font-size": "11px", padding: "1px 6px" }}>
                   {store.pendingApprovals.length}
                 </span>
               </Show>
-            </button>
-          </nav>
+            </div>
+          </button>
+        </nav>
+
+        {/* Bottom actions */}
+        <div class="divider" style={{ margin: "0 16px" }}></div>
+        <div class="px-3 py-2 space-y-0.5">
+          <button onClick={handleSync} disabled={syncing()} class="sidebar-item" style={{ opacity: syncing() ? 0.5 : 1 }}>
+            <svg class={syncing() ? "animate-spin" : ""} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+            </svg>
+            {syncing() ? "Syncing..." : "Sync Vault"}
+          </button>
+          <button onClick={() => navigate("/settings")} class="sidebar-item">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Settings
+          </button>
+          <button onClick={handleLock} class="sidebar-item" style={`color: var(--danger)`}>
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+            </svg>
+            Lock Vault
+          </button>
         </div>
 
-        {/* Tab Content */}
-        <div class="mt-4">
+        {/* User info */}
+        <div class="divider" style={{ margin: "0 16px" }}></div>
+        <div class="px-4 py-3 flex items-center gap-2.5">
+          <div class="flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium" style={`background: var(--brand-100); color: var(--brand-700)`}>
+            {(store.email || "U")[0].toUpperCase()}
+          </div>
+          <span class="text-xs truncate" style={`color: var(--text-secondary)`}>{store.email}</span>
+        </div>
+      </aside>
+
+      {/* ── Main Content ─────────────────────────────────────────── */}
+      <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Header */}
+        <header
+          class="flex items-center justify-between px-8 shrink-0 border-b"
+          style={{
+            height: "var(--header-height)",
+            background: "var(--bg-primary)",
+            "border-color": "var(--border-primary)",
+          }}
+        >
+          <h2 class="text-base font-semibold" style={`color: var(--text-primary)`}>
+            <Switch>
+              <Match when={activeTab() === "keys"}>SSH Keys</Match>
+              <Match when={activeTab() === "logs"}>Access Logs</Match>
+              <Match when={activeTab() === "approvals"}>Pending Approvals</Match>
+            </Switch>
+          </h2>
+          <div class="flex items-center gap-2">
+            <Show when={activeTab() === "keys"}>
+              <span class="text-xs" style={`color: var(--text-tertiary)`}>
+                {keys().length} key{keys().length !== 1 ? "s" : ""}
+              </span>
+            </Show>
+          </div>
+        </header>
+
+        {/* Content */}
+        <div class="flex-1 overflow-auto p-8">
           <Switch>
             <Match when={activeTab() === "keys"}>
-              <Show when={!keysLoading()} fallback={<div class="text-center py-10 text-gray-500">Loading keys...</div>}>
+              <Show when={!keysLoading()} fallback={
+                <div class="flex items-center justify-center py-20">
+                  <svg class="w-6 h-6 animate-spin" style={`color: var(--text-tertiary)`} fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                </div>
+              }>
                 <KeyTable keys={keys()} />
               </Show>
             </Match>
             
             <Match when={activeTab() === "logs"}>
-              <Show when={!logsLoading()} fallback={<div class="text-center py-10 text-gray-500">Loading logs...</div>}>
+              <Show when={!logsLoading()} fallback={
+                <div class="flex items-center justify-center py-20">
+                  <svg class="w-6 h-6 animate-spin" style={`color: var(--text-tertiary)`} fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                </div>
+              }>
                 <LogTable logs={logs()} />
               </Show>
             </Match>
             
             <Match when={activeTab() === "approvals"}>
-              <div class="space-y-4">
+              <div class="space-y-3">
                 <Show
                   when={store.pendingApprovals.length > 0}
                   fallback={
-                    <div class="rounded-lg border border-gray-200 bg-white p-8 text-center shadow-sm">
-                      <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <div class="card empty-state">
+                      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
                       </svg>
-                      <h3 class="mt-2 text-sm font-medium text-gray-900">No pending approvals</h3>
-                      <p class="mt-1 text-sm text-gray-500">You're all caught up.</p>
+                      <h3>No pending approvals</h3>
+                      <p>You're all caught up.</p>
                     </div>
                   }
                 >
                   <For each={store.pendingApprovals}>
                     {(req) => (
-                      <div class="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                        <div>
-                          <h4 class="text-lg font-medium text-gray-900">{req.key_name}</h4>
-                          <div class="mt-1 flex flex-col sm:flex-row sm:flex-wrap sm:space-x-6">
-                            <div class="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
-                              <svg class="mr-1.5 h-5 w-5 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                              </svg>
-                              {req.client_exe} (PID: {req.client_pid})
-                            </div>
-                            <div class="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
-                              <svg class="mr-1.5 h-5 w-5 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                              {new Date(req.timestamp * 1000).toLocaleString()}
+                      <div class="card" style={{ padding: "20px 24px" }}>
+                        <div class="flex items-start justify-between gap-4">
+                          <div class="min-w-0">
+                            <h4 class="text-sm font-semibold" style={`color: var(--text-primary)`}>{req.key_name}</h4>
+                            <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                              <span class="text-xs flex items-center gap-1" style={`color: var(--text-tertiary)`}>
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
+                                </svg>
+                                {req.client_exe} (PID: {req.client_pid})
+                              </span>
+                              <span class="text-xs flex items-center gap-1" style={`color: var(--text-tertiary)`}>
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                {new Date(req.timestamp * 1000).toLocaleString()}
+                              </span>
                             </div>
                           </div>
-                        </div>
-                        <div class="ml-4 flex flex-shrink-0 space-x-3">
-                          <button
-                            onClick={() => handleApprovalResponse(req.id, false)}
-                            class="inline-flex items-center rounded-md border border-transparent bg-red-100 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-                          >
-                            Deny
-                          </button>
-                          <button
-                            onClick={() => handleApprovalResponse(req.id, true)}
-                            class="inline-flex items-center rounded-md border border-transparent bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                          >
-                            Approve
-                          </button>
+                          <div class="flex gap-2 shrink-0">
+                            <button
+                              onClick={() => handleApprovalResponse(req.id, false)}
+                              class="btn btn-ghost text-xs"
+                              style={`color: var(--danger)`}
+                            >
+                              Deny
+                            </button>
+                            <button
+                              onClick={() => handleApprovalResponse(req.id, true)}
+                              class="btn btn-primary text-xs"
+                            >
+                              Approve
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}

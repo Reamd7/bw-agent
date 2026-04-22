@@ -23,101 +23,108 @@ export function ApprovalDialog(props: ApprovalDialogProps) {
   return (
     <Show when={props.request}>
       {(req) => (
-        <div class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overflow-x-hidden bg-gray-900/50 p-4">
-          <div class="relative w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-            <div class="mb-6 text-center">
-              <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
-                <svg
-                  class="h-6 w-6 text-blue-600"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
-                  ></path>
-                </svg>
-              </div>
-              <h3 class="text-xl font-bold text-gray-900">SSH Key Access Request</h3>
-              <p class="mt-2 text-sm text-gray-500">
-                An application is requesting access to your SSH key.
-              </p>
-            </div>
-
-            <div class="mb-6 space-y-3 rounded-lg bg-gray-50 p-4 text-sm">
-              <div class="flex justify-between">
-                <span class="font-medium text-gray-500">Key Name:</span>
-                <span class="font-semibold text-gray-900">{req().key_name}</span>
-              </div>
-              <div class="flex justify-between">
-                <span class="font-medium text-gray-500">Fingerprint:</span>
-                <span class="font-mono text-xs text-gray-900 truncate max-w-[200px]" title={req().key_fingerprint}>
-                  {req().key_fingerprint}
-                </span>
-              </div>
-              <div class="flex justify-between items-start">
-                <span class="font-medium text-gray-500">Process:</span>
-                <div class="text-right">
-                  <Show
-                    when={req().process_chain.length > 0}
-                    fallback={
-                      <span class="font-semibold text-gray-900" title={req().client_exe}>
-                        {extractExeName(req().client_exe)} (PID: {req().client_pid})
-                      </span>
-                    }
-                  >
-                    <div class="flex items-center gap-1 flex-wrap justify-end">
-                      <For each={req().process_chain}>
-                        {(proc, index) => (
-                          <>
-                            <Show when={index() > 0}>
-                              <span class="text-gray-400 text-xs">→</span>
-                            </Show>
-                            <span
-                              class="font-semibold text-gray-900 cursor-default"
-                              title={`${proc.exe}\nPID: ${proc.pid}\n${proc.cmdline}`}
-                            >
-                              {extractExeName(proc.exe)}
-                            </span>
-                          </>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
+        <div class="overlay" onClick={() => props.onRespond(req().id, false)}>
+          <div class="modal" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div class="flex items-center justify-between px-6 pt-6 pb-0">
+              <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 items-center justify-center rounded-xl" style={`background: var(--brand-50)`}>
+                  <svg class="h-5 w-5" style={`color: var(--brand-500)`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 class="text-base font-semibold" style={`color: var(--text-primary)`}>SSH Key Access Request</h3>
+                  <p class="text-xs mt-0.5" style={`color: var(--text-tertiary)`}>An application is requesting access</p>
                 </div>
               </div>
-              <Show when={req().process_chain.length > 0}>
-                <div class="flex justify-between items-start">
-                  <span class="font-medium text-gray-500">Target:</span>
-                  <span
-                    class="font-mono text-xs text-gray-900 truncate max-w-[200px]"
-                    title={req().process_chain[req().process_chain.length - 1].cmdline}
-                  >
-                    {req().process_chain[req().process_chain.length - 1].cmdline}
+              <button
+                class="btn-ghost"
+                style={{ "border-radius": "var(--radius-md)", padding: "6px" }}
+                onClick={() => props.onRespond(req().id, false)}
+              >
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Details */}
+            <div class="px-6 py-4">
+              <div class="space-y-2.5 rounded-lg p-4" style={`background: var(--bg-secondary)`}>
+                <div class="flex justify-between text-sm">
+                  <span style={`color: var(--text-tertiary)`}>Key</span>
+                  <span class="font-medium" style={`color: var(--text-primary)`}>{req().key_name}</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                  <span style={`color: var(--text-tertiary)`}>Fingerprint</span>
+                  <span class="font-mono text-xs" style={`color: var(--text-secondary)`} title={req().key_fingerprint}>
+                    {req().key_fingerprint.length > 24
+                      ? req().key_fingerprint.slice(0, 20) + "..." + req().key_fingerprint.slice(-4)
+                      : req().key_fingerprint}
                   </span>
                 </div>
-              </Show>
-              <div class="flex justify-between">
-                <span class="font-medium text-gray-500">Time:</span>
-                <span class="text-gray-900">{formatTime(req().timestamp)}</span>
+                <div class="flex justify-between items-start text-sm">
+                  <span style={`color: var(--text-tertiary)`}>Process</span>
+                  <div class="text-right">
+                    <Show
+                      when={req().process_chain.length > 0}
+                      fallback={
+                        <span class="font-medium" style={`color: var(--text-primary)`} title={req().client_exe}>
+                          {extractExeName(req().client_exe)} (PID: {req().client_pid})
+                        </span>
+                      }
+                    >
+                      <div class="flex items-center gap-1 flex-wrap justify-end">
+                        <For each={req().process_chain}>
+                          {(proc, index) => (
+                            <>
+                              <Show when={index() > 0}>
+                                <span class="text-xs" style={`color: var(--text-tertiary)`}>&rarr;</span>
+                              </Show>
+                              <span
+                                class="font-medium text-sm"
+                                style={`color: var(--text-primary)`}
+                                title={`${proc.exe}\nPID: ${proc.pid}\n${proc.cmdline}`}
+                              >
+                                {extractExeName(proc.exe)}
+                              </span>
+                            </>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </div>
+                </div>
+                <Show when={req().process_chain.length > 0}>
+                  <div class="flex justify-between items-start text-sm">
+                    <span style={`color: var(--text-tertiary)`}>Target</span>
+                    <span
+                      class="font-mono text-xs truncate max-w-[220px]"
+                      style={`color: var(--text-secondary)`}
+                      title={req().process_chain[req().process_chain.length - 1].cmdline}
+                    >
+                      {req().process_chain[req().process_chain.length - 1].cmdline}
+                    </span>
+                  </div>
+                </Show>
+                <div class="flex justify-between text-sm">
+                  <span style={`color: var(--text-tertiary)`}>Time</span>
+                  <span style={`color: var(--text-secondary)`}>{formatTime(req().timestamp)}</span>
+                </div>
               </div>
             </div>
 
-            <div class="flex gap-3">
+            {/* Actions */}
+            <div class="flex gap-2.5 px-6 pb-6">
               <button
-                type="button"
-                class="flex-1 rounded-lg bg-red-600 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-300"
+                class="btn btn-secondary flex-1"
                 onClick={() => props.onRespond(req().id, false)}
               >
                 Deny
               </button>
               <button
-                type="button"
-                class="flex-1 rounded-lg bg-green-600 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300"
+                class="btn btn-primary flex-1"
                 onClick={() => props.onRespond(req().id, true)}
               >
                 Approve
