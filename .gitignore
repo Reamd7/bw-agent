@@ -31,3 +31,7 @@ dist
 
 # Tauri auto-generated files
 src-tauri/gen
+.superpowers/brainstorm/bw-agent-logo/
+
+*.log
+.playwright-mcp
