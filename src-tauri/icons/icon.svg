@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 100 100" fill="none">
+  <!-- 外框 (Indigo-600) — 撑满画布 -->
+  <rect width="100" height="100" rx="18" fill="#4f46e5" />
+  <!-- 转盘主盘 (White) — 直接放在 indigo 底上，无内白框 -->
+  <circle cx="50" cy="50" r="30" fill="#FFFFFF" />
+  <!-- 4 个切口 (Indigo-600) -->
+  <rect x="44" y="14" width="12" height="13" rx="3" fill="#4f46e5" />
+  <rect x="44" y="73" width="12" height="13" rx="3" fill="#4f46e5" />
+  <rect x="14" y="44" width="13" height="12" rx="3" fill="#4f46e5" />
+  <rect x="73" y="44" width="13" height="12" rx="3" fill="#4f46e5" />
+  <!-- 转盘内圈 (Indigo-600) -->
+  <circle cx="50" cy="50" r="17" fill="#4f46e5" />
+  <!-- 中心锁孔 (White) -->
+  <circle cx="50" cy="46.5" r="5.5" fill="#FFFFFF" />
+  <path d="M46 53 L46.8 62 H53.2 L54 53 Z" fill="#FFFFFF" />
+</svg>
