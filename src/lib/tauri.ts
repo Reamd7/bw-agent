@@ -41,6 +41,8 @@ export interface AccessLogEntry {
   client_pid: number;
   process_chain: ProcessInfo[];
   approved: boolean;
+  auto_approved: boolean;
+  session_id: string | null;
 }
 
 export interface ApprovalRequest {
@@ -51,6 +53,22 @@ export interface ApprovalRequest {
   client_pid: number;
   process_chain: ProcessInfo[];
   timestamp: number;
+}
+
+export interface SessionScope {
+  type: "any_process" | "executable";
+  exe_path?: string;
+  exe_hash?: number[];
+}
+
+export interface ApprovalSessionInfo {
+  id: string;
+  key_fingerprint: string;
+  scope: SessionScope;
+  created_at_unix: number;
+  expires_at_unix: number;
+  remaining_secs: number;
+  usage_count: number;
 }
 
 export type LockMode =
@@ -100,3 +118,21 @@ export const configureGitSigning = () => invoke<void>("configure_git_signing");
 export const getGitSignProgramPath = () => invoke<string>("get_git_sign_program_path");
 export const updateKeyFields = (entryId: string, fields: CustomFieldInput[]) =>
   invoke<void>("update_key_fields", { entryId, fields });
+
+export const approveRequestWithSession = (
+  requestId: string,
+  durationSecs: number,
+  scopeType: string,
+  scopeExePath?: string,
+) => invoke<void>("approve_request_with_session", {
+  requestId,
+  durationSecs,
+  scopeType,
+  scopeExePath,
+});
+
+export const listActiveSessions = () =>
+  invoke<ApprovalSessionInfo[]>("list_active_sessions");
+
+export const revokeSession = (sessionId: string) =>
+  invoke<boolean>("revoke_session", { sessionId });

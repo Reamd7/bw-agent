@@ -13,6 +13,8 @@ pub struct AccessLogEntry {
     pub client_pid: u32,
     pub process_chain: Vec<ProcessInfo>,
     pub approved: bool,
+    pub auto_approved: bool,
+    pub session_id: Option<String>,
 }
 
 /// SQLite-backed access log for SSH key usage.
@@ -66,6 +68,18 @@ impl AccessLog {
             log::debug!("access_log migration skipped (column may already exist): {e}");
         }
 
+        // Migration: add auto_approved column
+        if let Err(e) = conn.execute_batch(
+            "ALTER TABLE access_log ADD COLUMN auto_approved INTEGER NOT NULL DEFAULT 0",
+        ) {
+            log::debug!("auto_approved column migration (likely already exists): {e}");
+        }
+
+        // Migration: add session_id column
+        if let Err(e) = conn.execute_batch("ALTER TABLE access_log ADD COLUMN session_id TEXT") {
+            log::debug!("session_id column migration (likely already exists): {e}");
+        }
+
         Ok(())
     }
 
@@ -78,6 +92,8 @@ impl AccessLog {
         pid: u32,
         approved: bool,
         process_chain: &[ProcessInfo],
+        auto_approved: bool,
+        session_id: Option<&str>,
     ) -> rusqlite::Result<()> {
         let conn = self.conn.lock().unwrap_or_else(|e| {
             log::warn!("Access log mutex was poisoned, recovering");
@@ -85,8 +101,8 @@ impl AccessLog {
         });
         let chain_json = serde_json::to_string(process_chain).unwrap_or_else(|_| "[]".to_string());
         conn.execute(
-            "INSERT INTO access_log (key_fingerprint, key_name, client_exe, client_pid, approved, process_chain) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params![fingerprint, key_name, exe, pid, approved as i32, chain_json],
+            "INSERT INTO access_log (key_fingerprint, key_name, client_exe, client_pid, approved, process_chain, auto_approved, session_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![fingerprint, key_name, exe, pid, approved as i32, chain_json, auto_approved as i32, session_id],
         )?;
         Ok(())
     }
@@ -98,7 +114,7 @@ impl AccessLog {
             e.into_inner()
         });
         let mut stmt = conn.prepare(
-            "SELECT id, timestamp, key_fingerprint, key_name, client_exe, client_pid, approved, process_chain FROM access_log ORDER BY id DESC LIMIT ?1",
+            "SELECT id, timestamp, key_fingerprint, key_name, client_exe, client_pid, approved, process_chain, auto_approved, session_id FROM access_log ORDER BY id DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map([limit], |row| {
             Ok(AccessLogEntry {
@@ -113,6 +129,8 @@ impl AccessLog {
                     serde_json::from_str(&json_str).unwrap_or_default()
                 },
                 approved: row.get::<_, i32>(6)? != 0,
+                auto_approved: row.get::<_, i32>(8)? != 0,
+                session_id: row.get(9)?,
             })
         })?;
         rows.collect()
@@ -148,15 +166,70 @@ mod tests {
                     cwd: "C:\\Users\\test\\repo".to_string(),
                 },
             ],
+            false,
+            None,
         )
         .unwrap();
-        log.record("SHA256:def", "other-key", "git.exe", 5678, false, &[])
-            .unwrap();
+        log.record(
+            "SHA256:def",
+            "other-key",
+            "git.exe",
+            5678,
+            false,
+            &[],
+            false,
+            None,
+        )
+        .unwrap();
         let entries = log.query(10).unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].key_fingerprint, "SHA256:def"); // most recent first
         assert!(entries[1].approved);
         assert_eq!(entries[1].process_chain.len(), 2);
         assert_eq!(entries[1].process_chain[0].exe, "git.exe");
+    }
+
+    #[test]
+    fn test_record_and_query_auto_approved() {
+        let log = AccessLog::open_in_memory().unwrap();
+        log.record(
+            "SHA256:auto",
+            "auto-key",
+            "ssh.exe",
+            9999,
+            true,
+            &[],
+            true,
+            Some("test-session"),
+        )
+        .unwrap();
+
+        let entries = log.query(10).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].approved);
+        assert!(entries[0].auto_approved);
+        assert_eq!(entries[0].session_id.as_deref(), Some("test-session"));
+    }
+
+    #[test]
+    fn test_record_auto_approved_default() {
+        let log = AccessLog::open_in_memory().unwrap();
+        log.record(
+            "SHA256:manual",
+            "manual-key",
+            "ssh.exe",
+            1111,
+            true,
+            &[],
+            false,
+            None,
+        )
+        .unwrap();
+
+        let entries = log.query(10).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].approved);
+        assert!(!entries[0].auto_approved);
+        assert!(entries[0].session_id.is_none());
     }
 }

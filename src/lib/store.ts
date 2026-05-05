@@ -1,10 +1,11 @@
 import { createStore } from "solid-js/store";
 import { listen } from "@tauri-apps/api/event";
-import type { ApprovalRequest } from "./tauri";
+import type { ApprovalRequest, ApprovalSessionInfo } from "./tauri";
 
 interface AppStore {
   locked: boolean;
   pendingApprovals: ApprovalRequest[];
+  activeSessions: ApprovalSessionInfo[];
   email: string;
   isSetupComplete: boolean;
 }
@@ -12,6 +13,7 @@ interface AppStore {
 export const [store, setStore] = createStore<AppStore>({
   locked: true,
   pendingApprovals: [],
+  activeSessions: [],
   email: "",
   isSetupComplete: true,
 });

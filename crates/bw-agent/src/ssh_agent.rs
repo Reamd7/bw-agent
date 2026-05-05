@@ -1,6 +1,7 @@
 use crate::access_log::AccessLog;
 use crate::approval::ApprovalQueue;
 use crate::auth;
+use crate::session_store::SessionStore;
 use crate::state::State;
 use signature::Signer as _;
 use std::sync::Arc;
@@ -15,6 +16,7 @@ pub struct SshAgentHandler<U: crate::UiCallback> {
     ui: Arc<U>,
     approval_queue: Arc<ApprovalQueue>,
     access_log: Arc<AccessLog>,
+    session_store: Arc<SessionStore>,
     approval_timeout: std::time::Duration,
     max_login_attempts: u32,
     /// PID of the connected client. Set per-session in `new_session`.
@@ -32,6 +34,7 @@ impl<U: crate::UiCallback> Clone for SshAgentHandler<U> {
             ui: Arc::clone(&self.ui),
             approval_queue: Arc::clone(&self.approval_queue),
             access_log: Arc::clone(&self.access_log),
+            session_store: Arc::clone(&self.session_store),
             approval_timeout: self.approval_timeout,
             max_login_attempts: self.max_login_attempts,
             client_pid: self.client_pid,
@@ -47,6 +50,7 @@ impl<U: crate::UiCallback> SshAgentHandler<U> {
         ui: Arc<U>,
         approval_queue: Arc<ApprovalQueue>,
         access_log: Arc<AccessLog>,
+        session_store: Arc<SessionStore>,
         approval_timeout: std::time::Duration,
         max_login_attempts: u32,
     ) -> Self {
@@ -56,6 +60,7 @@ impl<U: crate::UiCallback> SshAgentHandler<U> {
             ui,
             approval_queue,
             access_log,
+            session_store,
             approval_timeout,
             max_login_attempts,
             client_pid: 0,
@@ -79,6 +84,11 @@ impl<U: crate::UiCallback> SshAgentHandler<U> {
     /// Get a reference to the access log (for Tauri IPC commands).
     pub fn access_log(&self) -> &Arc<AccessLog> {
         &self.access_log
+    }
+
+    /// Get a reference to the session store (for Tauri IPC commands).
+    pub fn session_store(&self) -> &Arc<SessionStore> {
+        &self.session_store
     }
 }
 
@@ -292,39 +302,50 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
             .map(|p| p.exe.clone())
             .unwrap_or_else(|| "unknown".to_string());
 
-        let (approval_request, approval_rx) = self
-            .approval_queue
-            .create_request(
-                &key_name,
-                &fingerprint_str,
-                &client_exe,
-                self.client_pid,
-                process_chain.clone(),
-            )
-            .await;
+        let auto_session = self
+            .session_store
+            .check_session(&fingerprint_str, &client_exe);
 
-        if !self.ui.request_approval(&approval_request).await {
-            self.approval_queue
-                .respond(&approval_request.id, false)
+        let (approved, auto_approved, session_id_for_log) = if let Some(session_id) = auto_session {
+            log::info!("Auto-approved by session {session_id}");
+            (true, true, Some(session_id))
+        } else {
+            let (approval_request, approval_rx) = self
+                .approval_queue
+                .create_request(
+                    &key_name,
+                    &fingerprint_str,
+                    &client_exe,
+                    self.client_pid,
+                    process_chain.clone(),
+                )
                 .await;
-        }
 
-        let approved = match tokio::time::timeout(self.approval_timeout, approval_rx).await {
-            Ok(Ok(approved)) => approved,
-            Ok(Err(_)) => {
-                log::warn!("Approval sender dropped, auto-denying");
-                false
-            }
-            Err(_) => {
-                log::warn!(
-                    "Approval request timed out after {:?}, auto-denying",
-                    self.approval_timeout
-                );
+            if !self.ui.request_approval(&approval_request).await {
                 self.approval_queue
                     .respond(&approval_request.id, false)
                     .await;
-                false
             }
+
+            let approved = match tokio::time::timeout(self.approval_timeout, approval_rx).await {
+                Ok(Ok(approved)) => approved,
+                Ok(Err(_)) => {
+                    log::warn!("Approval sender dropped, auto-denying");
+                    false
+                }
+                Err(_) => {
+                    log::warn!(
+                        "Approval request timed out after {:?}, auto-denying",
+                        self.approval_timeout
+                    );
+                    self.approval_queue
+                        .respond(&approval_request.id, false)
+                        .await;
+                    false
+                }
+            };
+
+            (approved, false, None)
         };
 
         // Log the access regardless of approval result.
@@ -344,6 +365,8 @@ impl<U: crate::UiCallback> ssh_agent_lib::agent::Session for SshAgentHandler<U> 
                 client_pid,
                 approved,
                 &process_chain,
+                auto_approved,
+                session_id_for_log.as_deref(),
             ) {
                 log::error!("Failed to write access log: {e}");
             }
@@ -483,12 +506,14 @@ mod tests {
         let client = bw_core::api::Client::bitwarden_cloud(None);
         let approval_queue = Arc::new(crate::approval::ApprovalQueue::new());
         let access_log = Arc::new(crate::access_log::AccessLog::open_in_memory().unwrap());
+        let session_store = Arc::new(crate::session_store::SessionStore::new());
         let mut handler = SshAgentHandler::new(
             state,
             client,
             Arc::new(crate::StubUiCallback),
             approval_queue,
             access_log,
+            session_store,
             std::time::Duration::from_secs(30),
             3,
         );

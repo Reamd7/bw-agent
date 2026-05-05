@@ -1,13 +1,32 @@
-import { For, Show } from "solid-js";
+import { For, Show, createSignal, createEffect } from "solid-js";
 import type { ApprovalRequest } from "../lib/tauri";
 
 interface ApprovalDialogProps {
   request: ApprovalRequest | null;
   onRespond: (requestId: string, approved: boolean) => void;
+  onRespondWithSession: (requestId: string, durationSecs: number, scopeType: string, scopeExePath?: string) => void;
   onDismiss: () => void;
 }
 
+const formatDuration = (secs: number): string => {
+  if (secs < 3600) return `${secs / 60}min`;
+  if (secs < 7200) return "1h";
+  return `${secs / 3600}h`;
+};
+
 export function ApprovalDialog(props: ApprovalDialogProps) {
+  const [rememberOpen, setRememberOpen] = createSignal(false);
+  const [duration, setDuration] = createSignal(900); // 15 minutes default
+  const [scopeType, setScopeType] = createSignal<"executable" | "any_process">("executable");
+
+  createEffect(() => {
+    if (props.request) {
+      setRememberOpen(false);
+      setDuration(900);
+      setScopeType("executable");
+    }
+  });
+
   const formatTime = (timestamp: number) => {
     try {
       return new Date(timestamp * 1000).toLocaleString();
@@ -116,6 +135,78 @@ export function ApprovalDialog(props: ApprovalDialogProps) {
               </div>
             </div>
 
+            {/* Remember section */}
+            <div class="px-6 py-3" style={`border-top: 1px solid var(--border-primary)`}>
+              <button
+                class="flex items-center gap-2 w-full text-left"
+                onClick={() => setRememberOpen(!rememberOpen())}
+              >
+                <svg class="w-4 h-4 transition-transform" style={{
+                  color: "var(--text-tertiary)",
+                  transform: rememberOpen() ? "rotate(90deg)" : "rotate(0deg)"
+                }} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                </svg>
+                <span class="text-xs font-medium" style={`color: var(--text-secondary)`}>
+                  Remember this decision
+                </span>
+              </button>
+              <Show when={rememberOpen()}>
+                <div class="mt-3 space-y-3 pl-6">
+                  {/* Duration selector */}
+                  <div class="flex items-center gap-3">
+                    <span class="text-xs shrink-0" style={`color: var(--text-tertiary); width: 70px`}>
+                      Duration
+                    </span>
+                    <select
+                      class="input text-xs"
+                      style={{ padding: "4px 28px 4px 8px", width: "140px", appearance: "none",
+                        "background-image": "url(\"data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e\")",
+                        "background-position": "right 6px center", "background-repeat": "no-repeat", "background-size": "16px"
+                      }}
+                      value={duration()}
+                      onChange={(e) => setDuration(parseInt(e.currentTarget.value))}
+                    >
+                      <option value={300}>5 minutes</option>
+                      <option value={600}>10 minutes</option>
+                      <option value={900}>15 minutes</option>
+                      <option value={1800}>30 minutes</option>
+                      <option value={3600}>1 hour</option>
+                      <option value={7200}>2 hours</option>
+                      <option value={14400}>4 hours</option>
+                    </select>
+                  </div>
+                  {/* Scope selector */}
+                  <div class="space-y-1.5">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio" name="scope"
+                        checked={scopeType() === "executable"}
+                        onChange={() => setScopeType("executable")}
+                        style={{ "accent-color": "var(--brand-500)" }}
+                      />
+                      <span class="text-xs" style={`color: var(--text-primary)`}>This program only</span>
+                      <span class="text-xs" style={`color: var(--text-tertiary)`}>(recommended)</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio" name="scope"
+                        checked={scopeType() === "any_process"}
+                        onChange={() => setScopeType("any_process")}
+                        style={{ "accent-color": "var(--brand-500)" }}
+                      />
+                      <span class="text-xs" style={`color: var(--text-primary)`}>Any program</span>
+                    </label>
+                    <Show when={scopeType() === "any_process"}>
+                      <div class="ml-5 text-xs rounded-md px-2.5 py-1.5" style={`background: var(--warning-bg); color: var(--warning-text)`}>
+                        Any application on this computer can use this key during the session
+                      </div>
+                    </Show>
+                  </div>
+                </div>
+              </Show>
+            </div>
+
             {/* Actions */}
             <div class="flex gap-2.5 px-6 pb-6">
               <button
@@ -128,8 +219,30 @@ export function ApprovalDialog(props: ApprovalDialogProps) {
                 class="btn btn-primary flex-1"
                 onClick={() => props.onRespond(req().id, true)}
               >
-                Approve
+                Approve Once
               </button>
+              <Show when={rememberOpen()}>
+                <button
+                  class="btn flex-1"
+                  style={{
+                    background: "var(--brand-600)",
+                    color: "white",
+                  }}
+                  onClick={() => {
+                    const initiatorExe = req().process_chain.length > 0
+                      ? req().process_chain[0].exe
+                      : req().client_exe;
+                    props.onRespondWithSession(
+                      req().id,
+                      duration(),
+                      scopeType(),
+                      scopeType() === "executable" ? initiatorExe : undefined,
+                    );
+                  }}
+                >
+                  Allow {formatDuration(duration())}
+                </button>
+              </Show>
             </div>
           </div>
         </div>

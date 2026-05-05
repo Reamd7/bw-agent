@@ -400,6 +400,70 @@ pub async fn update_key_fields(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn approve_request_with_session(
+    request_id: String,
+    duration_secs: u64,
+    scope_type: String,
+    scope_exe_path: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use bw_agent::session_store::SessionScope;
+    use std::time::Duration;
+
+    // Look up the pending request to get key_fingerprint
+    let request = state
+        .approval_queue
+        .get_request(&request_id)
+        .await
+        .ok_or_else(|| "Request not found or already responded to".to_string())?;
+
+    // Build the session scope
+    let scope = match scope_type.as_str() {
+        "any_process" => SessionScope::AnyProcess,
+        "executable" => {
+            let exe_path = scope_exe_path
+                .ok_or_else(|| "exe_path required for executable scope".to_string())?;
+            let exe_hash = state
+                .session_store
+                .hash_file_cached(&exe_path)
+                .map_err(|e| format!("Failed to hash executable: {e}"))?;
+            SessionScope::Executable { exe_path, exe_hash }
+        }
+        other => return Err(format!("Invalid scope_type: {other}")),
+    };
+
+    // Create the session
+    let session_id = state.session_store.create_session(
+        &request.key_fingerprint,
+        scope,
+        Duration::from_secs(duration_secs),
+    );
+    log::info!(
+        "Created approval session {session_id} for key {}",
+        request.key_fingerprint
+    );
+
+    // Respond to the approval (approve = true)
+    state.approval_queue.respond(&request_id, true).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_active_sessions(
+    state: State<'_, AppState>,
+) -> Result<Vec<bw_agent::session_store::SessionInfo>, String> {
+    Ok(state.session_store.list_active())
+}
+
+#[tauri::command]
+pub async fn revoke_session(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    Ok(state.session_store.revoke_session(&session_id))
+}
+
 /// Clear any pending 2FA login state. Call this everywhere the vault is locked.
 fn clear_pending_two_factor(state: &AppState) {
     if let Ok(mut pending) = state.pending_two_factor.lock() {
@@ -667,6 +731,7 @@ pub async fn get_pending_approvals(
 #[tauri::command]
 pub async fn lock_vault(state: State<'_, AppState>) -> Result<(), String> {
     state.agent_state.lock().await.clear();
+    state.session_store.revoke_all();
     clear_pending_two_factor(&state);
     events::emit_lock_state_changed(&state.app_handle, true).map_err(|error| error.to_string())?;
     Ok(())

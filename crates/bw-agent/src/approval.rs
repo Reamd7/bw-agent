@@ -73,6 +73,16 @@ impl ApprovalQueue {
         self.requests.lock().await.retain(|r| r.id != request_id);
     }
 
+    /// Get a pending request by ID (for extracting metadata before responding).
+    pub async fn get_request(&self, request_id: &str) -> Option<ApprovalRequest> {
+        self.requests
+            .lock()
+            .await
+            .iter()
+            .find(|r| r.id == request_id)
+            .cloned()
+    }
+
     /// Get all pending (unanswered) approval requests.
     pub async fn pending(&self) -> Vec<ApprovalRequest> {
         self.requests.lock().await.clone()

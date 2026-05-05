@@ -227,9 +227,15 @@ function LogDetailModal(props: { log: AccessLogEntry; onClose: () => void }) {
         <div class="flex items-center justify-between px-6 pt-6 pb-0">
           <div class="flex items-center gap-3">
             <h3 class="text-base font-semibold" style={`color: var(--text-primary)`}>Log Detail</h3>
-            <span class={`badge ${props.log.approved ? "badge-success" : "badge-danger"}`}>
-              {props.log.approved ? "Approved" : "Denied"}
-            </span>
+            <Show when={props.log.approved && props.log.auto_approved} fallback={
+              <span class={`badge ${props.log.approved ? "badge-success" : "badge-danger"}`}>
+                {props.log.approved ? "Approved" : "Denied"}
+              </span>
+            }>
+              <span class="badge" style={{ background: "var(--brand-50)", color: "var(--brand-700)" }}>
+                Auto-Approved
+              </span>
+            </Show>
           </div>
           <button
             class="btn-ghost"
@@ -269,6 +275,14 @@ function LogDetailModal(props: { log: AccessLogEntry; onClose: () => void }) {
                 {props.log.key_fingerprint}
               </div>
             </div>
+            <Show when={props.log.auto_approved}>
+              <div class="flex justify-between text-sm">
+                <span style={`color: var(--text-tertiary)`}>Authorization</span>
+                <span class="badge text-xs" style={{ background: "var(--brand-50)", color: "var(--brand-700)" }}>
+                  Session auto-approval
+                </span>
+              </div>
+            </Show>
 
             {/* Process Chain */}
             <Show when={props.log.process_chain && props.log.process_chain.length > 0}>
@@ -393,9 +407,15 @@ export function LogTable(props: LogTableProps) {
                       {formatTime(log.timestamp)}
                     </span>
 
-                    <span class={`badge ${log.approved ? "badge-success" : "badge-danger"} shrink-0`}>
-                      {log.approved ? "Approved" : "Denied"}
-                    </span>
+                    <Show when={log.approved && log.auto_approved} fallback={
+                      <span class={`badge ${log.approved ? "badge-success" : "badge-danger"} shrink-0`}>
+                        {log.approved ? "Approved" : "Denied"}
+                      </span>
+                    }>
+                      <span class="badge shrink-0" style={{ background: "var(--brand-50)", color: "var(--brand-700)" }}>
+                        Auto-Approved
+                      </span>
+                    </Show>
                   </div>
                 </div>
               );

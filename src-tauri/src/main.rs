@@ -40,6 +40,7 @@ pub struct AppState {
     pub client: Arc<std::sync::RwLock<bw_core::api::Client>>,
     pub approval_queue: Arc<bw_agent::approval::ApprovalQueue>,
     pub access_log: Arc<bw_agent::access_log::AccessLog>,
+    pub session_store: Arc<bw_agent::session_store::SessionStore>,
     pub password_tx: PasswordPromptSlot,
     pub two_factor_tx: TwoFactorPromptSlot,
     pub pending_two_factor: Arc<Mutex<Option<PendingTwoFactor>>>,
@@ -168,6 +169,7 @@ fn main() {
             )));
             let approval_queue = Arc::new(bw_agent::approval::ApprovalQueue::new());
             let access_log = Arc::new(open_access_log().map_err(to_tauri_error)?);
+            let session_store = Arc::new(bw_agent::session_store::SessionStore::new());
             let password_tx = Arc::new(Mutex::new(None));
             let two_factor_tx = Arc::new(Mutex::new(None));
             let pending_two_factor = Arc::new(Mutex::new(None));
@@ -192,6 +194,7 @@ fn main() {
                 client: Arc::clone(&client),
                 approval_queue: Arc::clone(&approval_queue),
                 access_log: Arc::clone(&access_log),
+                session_store: Arc::clone(&session_store),
                 password_tx,
                 two_factor_tx,
                 pending_two_factor,
@@ -202,6 +205,7 @@ fn main() {
             let client_for_agent = client.read().unwrap().clone();
             let approval_queue_for_agent = Arc::clone(&approval_queue);
             let access_log_for_agent = Arc::clone(&access_log);
+            let session_store_for_agent = Arc::clone(&session_store);
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = bw_agent::start_agent_with_shared_state(
                     agent_config,
@@ -210,6 +214,7 @@ fn main() {
                     client_for_agent,
                     approval_queue_for_agent,
                     access_log_for_agent,
+                    session_store_for_agent,
                 )
                 .await
                 {
@@ -269,6 +274,9 @@ fn main() {
             commands::configure_git_signing,
             commands::get_git_sign_program_path,
             commands::update_key_fields,
+            commands::approve_request_with_session,
+            commands::list_active_sessions,
+            commands::revoke_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

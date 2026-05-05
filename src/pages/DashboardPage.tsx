@@ -11,10 +11,13 @@ import {
   getPendingApprovals,
   lockVault,
   manualSync,
+  listActiveSessions,
+  revokeSession,
   type ApprovalRequest,
+  type ApprovalSessionInfo,
 } from "../lib/tauri";
 
-type Tab = "keys" | "logs" | "approvals";
+type Tab = "keys" | "logs" | "approvals" | "sessions";
 
 function navigate(path: string) {
   window.location.hash = "#" + path;
@@ -46,8 +49,27 @@ export default function DashboardPage() {
   const [keysLoading, setKeysLoading] = createSignal(true);
   const [logsLoading, setLogsLoading] = createSignal(true);
 
+  const [sessions, setSessions] = createSignal<ApprovalSessionInfo[]>([]);
+  const [sessionsLoading, setSessionsLoading] = createSignal(false);
+
   const [synced, setSynced] = createSignal(false);
   const [syncing, setSyncing] = createSignal(false);
+
+  // Countdown timer — updates sessions every second to refresh remaining time
+  let sessionsInterval: ReturnType<typeof setInterval> | undefined;
+  const startSessionsTimer = () => {
+    if (sessionsInterval) clearInterval(sessionsInterval);
+    sessionsInterval = setInterval(() => {
+      setSessions((prev) =>
+        prev
+          .map((s) => ({
+            ...s,
+            remaining_secs: Math.max(0, s.expires_at_unix - Math.floor(Date.now() / 1000)),
+          }))
+          .filter((s) => s.remaining_secs > 0),
+      );
+    }, 1000);
+  };
 
   const fetchKeys = async () => {
     setKeysLoading(true);
@@ -74,11 +96,22 @@ export default function DashboardPage() {
       }
     }
   };
+  const fetchSessions = async () => {
+    setSessionsLoading(true);
+    try {
+      setSessions(await listActiveSessions());
+      setSessionsLoading(false);
+      startSessionsTimer();
+    } catch {
+      setSessionsLoading(false);
+    }
+  };
 
   onMount(async () => {
     // Kick off data fetches in parallel — non-blocking
     fetchKeys();
     fetchLogs();
+    fetchSessions();
 
     try {
       const pending = await getPendingApprovals();
@@ -122,6 +155,7 @@ export default function DashboardPage() {
     setActiveTab(tab);
     if (tab === "keys") fetchKeys();
     if (tab === "logs") fetchLogs();
+    if (tab === "sessions") fetchSessions();
   };
 
   const handleLock = async () => {
@@ -157,6 +191,43 @@ export default function DashboardPage() {
     } catch (e) {
       console.error("Failed to respond to approval:", e);
     }
+  };
+
+  const handleApprovalResponseWithSession = async (requestId: string, durationSecs: number, scopeType: string, scopeExePath?: string) => {
+    try {
+      await import("../lib/tauri").then(m => m.approveRequestWithSession(requestId, durationSecs, scopeType, scopeExePath));
+      setStore("pendingApprovals", (prev) => prev.filter((req) => req.id !== requestId));
+      if (currentApproval()?.id === requestId) {
+        setCurrentApproval(null);
+      }
+      if (activeTab() === "logs") {
+        fetchLogs();
+      }
+      // Refresh sessions so sidebar badge updates immediately
+      fetchSessions();
+    } catch (e) {
+      console.error("Failed to respond to approval with session:", e);
+    }
+  };
+
+  const handleRevokeSession = async (sessionId: string) => {
+    setSessions((s) => s.filter((session) => session.id !== sessionId));
+    await revokeSession(sessionId);
+  };
+
+  const formatRemaining = (secs: number): string => {
+    if (secs <= 0) return "Expired";
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  };
+
+  const scopeLabel = (scope: import("../lib/tauri").SessionScope): string => {
+    if (scope.type === "any_process") return "Any Process";
+    return scope.exe_path?.split(/[/\\]/).pop() || "Executable";
   };
 
   return (
@@ -234,6 +305,25 @@ export default function DashboardPage() {
               </Show>
             </div>
           </button>
+          <button
+            onClick={() => handleTabChange("sessions")}
+            classList={{
+              "sidebar-item": true,
+              "active": activeTab() === "sessions",
+            }}
+          >
+            <div class="flex items-center gap-2.5 w-full">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span class="flex-1 text-left">Sessions</span>
+              <Show when={sessions().length > 0}>
+                <span class="badge" style={{ "font-size": "11px", padding: "1px 6px", background: "var(--brand-100)", color: "var(--brand-700)" }}>
+                  {sessions().length}
+                </span>
+              </Show>
+            </div>
+          </button>
         </nav>
 
         {/* Bottom actions */}
@@ -286,6 +376,7 @@ export default function DashboardPage() {
               <Match when={activeTab() === "keys"}>SSH Keys</Match>
               <Match when={activeTab() === "logs"}>Access Logs</Match>
               <Match when={activeTab() === "approvals"}>Pending Approvals</Match>
+              <Match when={activeTab() === "sessions"}>Active Sessions</Match>
             </Switch>
           </h2>
           <div class="flex items-center gap-2">
@@ -383,6 +474,105 @@ export default function DashboardPage() {
                 </Show>
               </div>
             </Match>
+
+            <Match when={activeTab() === "sessions"}>
+              <Show
+                when={!sessionsLoading()}
+                fallback={
+                  <div class="flex items-center justify-center py-20">
+                    <svg class="w-6 h-6 animate-spin" style={`color: var(--text-tertiary)`} fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  </div>
+                }
+              >
+                <Show
+                  when={sessions().length > 0}
+                  fallback={
+                    <div class="card empty-state">
+                      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <h3>No active sessions</h3>
+                      <p>Approve a request with "Remember" to create a session.</p>
+                    </div>
+                  }
+                >
+                  <div class="space-y-3">
+                    <For each={sessions()}>
+                      {(session) => {
+                        const pct = () => {
+                          const total = session.expires_at_unix - session.created_at_unix;
+                          if (total <= 0) return 0;
+                          return Math.max(0, Math.min(100, (session.remaining_secs / total) * 100));
+                        };
+                        const isLow = () => session.remaining_secs < 120;
+                        return (
+                          <div class="card" style={{ padding: "20px 24px" }}>
+                            <div class="flex items-start justify-between gap-4">
+                              <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-2">
+                                  <h4 class="text-sm font-semibold" style={`color: var(--text-primary)`}>
+                                    {session.key_fingerprint.slice(0, 16)}…
+                                  </h4>
+                                  <span
+                                    class="text-xs px-1.5 py-0.5 rounded"
+                                    style={{
+                                      background: session.scope.type === "any_process" ? "var(--warning-bg, #fef3c7)" : "var(--brand-100)",
+                                      color: session.scope.type === "any_process" ? "var(--warning-text, #92400e)" : "var(--brand-700)",
+                                    }}
+                                  >
+                                    {session.scope.type === "any_process" ? "⚠ Any Process" : `🔗 ${scopeLabel(session.scope)}`}
+                                  </span>
+                                </div>
+                                <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                                  <span class="text-xs flex items-center gap-1" style={`color: var(--text-tertiary)`}>
+                                    Uses: {session.usage_count}
+                                  </span>
+                                  <span class="text-xs flex items-center gap-1" style={`color: var(--text-tertiary)`}>
+                                    Created: {new Date(session.created_at_unix * 1000).toLocaleTimeString()}
+                                  </span>
+                                </div>
+                                {/* Countdown bar */}
+                                <div class="mt-3">
+                                  <div class="flex items-center justify-between mb-1">
+                                    <span class="text-xs font-medium" style={{ color: isLow() ? "var(--danger)" : "var(--text-secondary)" }}>
+                                      {formatRemaining(session.remaining_secs)}
+                                    </span>
+                                  </div>
+                                  <div class="w-full h-1.5 rounded-full" style={{ background: "var(--bg-secondary)" }}>
+                                    <div
+                                      class="h-full rounded-full transition-all duration-1000"
+                                      style={{
+                                        width: `${pct()}%`,
+                                        background: isLow() ? "var(--danger)" : "var(--brand-500)",
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                                <Show when={session.scope.type === "executable" && session.scope.exe_path}>
+                                  <div class="mt-2 text-xs font-mono truncate" style={`color: var(--text-tertiary)`}>
+                                    {session.scope.exe_path}
+                                  </div>
+                                </Show>
+                              </div>
+                              <button
+                                onClick={() => handleRevokeSession(session.id)}
+                                class="btn btn-ghost text-xs shrink-0"
+                                style={`color: var(--danger)`}
+                              >
+                                Revoke
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </Show>
+              </Show>
+            </Match>
           </Switch>
         </div>
       </main>
@@ -391,6 +581,7 @@ export default function DashboardPage() {
       <ApprovalDialog
         request={currentApproval()}
         onRespond={handleApprovalResponse}
+        onRespondWithSession={handleApprovalResponseWithSession}
         onDismiss={() => setCurrentApproval(null)}
       />
     </div>

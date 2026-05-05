@@ -8,11 +8,14 @@ pub mod git_sign;
 pub mod pipe;
 pub mod process;
 pub mod routing;
+pub mod session_store;
 pub mod ssh_agent;
 pub mod state;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+use crate::session_store::SessionStore;
 
 pub use approval::ApprovalRequest;
 pub use process::ProcessInfo;
@@ -110,8 +113,18 @@ pub async fn start_agent<U: UiCallback>(config: config::Config, ui: U) -> anyhow
         access_log::AccessLog::open(&data_dir.join("access_log.db"))
             .map_err(|e| anyhow::anyhow!("Failed to open access log: {e}"))?,
     );
+    let session_store = Arc::new(SessionStore::new());
 
-    start_agent_with_shared_state(config, ui, state, client, approval_queue, access_log).await
+    start_agent_with_shared_state(
+        config,
+        ui,
+        state,
+        client,
+        approval_queue,
+        access_log,
+        session_store,
+    )
+    .await
 }
 
 /// Start the SSH agent service using caller-provided shared state and services.
@@ -122,6 +135,7 @@ pub async fn start_agent_with_shared_state<U: UiCallback>(
     client: bw_core::api::Client,
     approval_queue: Arc<approval::ApprovalQueue>,
     access_log: Arc<access_log::AccessLog>,
+    session_store: Arc<SessionStore>,
 ) -> anyhow::Result<()> {
     let email = config.email.clone().unwrap_or_default();
     let api_url = config.api_url();
@@ -155,6 +169,7 @@ pub async fn start_agent_with_shared_state<U: UiCallback>(
         Arc::new(ui),
         approval_queue,
         access_log,
+        session_store,
         std::time::Duration::from_secs(config.approval_timeout_secs),
         config.max_login_attempts,
     );
