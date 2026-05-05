@@ -4,6 +4,7 @@ import type { ApprovalRequest } from "../lib/tauri";
 interface ApprovalDialogProps {
   request: ApprovalRequest | null;
   onRespond: (requestId: string, approved: boolean) => void;
+  onDismiss: () => void;
 }
 
 export function ApprovalDialog(props: ApprovalDialogProps) {
@@ -23,7 +24,7 @@ export function ApprovalDialog(props: ApprovalDialogProps) {
   return (
     <Show when={props.request}>
       {(req) => (
-        <div class="overlay" onClick={() => props.onRespond(req().id, false)}>
+        <div class="overlay">
           <div class="modal" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div class="flex items-center justify-between px-6 pt-6 pb-0">
@@ -41,7 +42,7 @@ export function ApprovalDialog(props: ApprovalDialogProps) {
               <button
                 class="btn-ghost"
                 style={{ "border-radius": "var(--radius-md)", padding: "6px" }}
-                onClick={() => props.onRespond(req().id, false)}
+                onClick={props.onDismiss}
               >
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />

@@ -261,6 +261,31 @@ pub fn decrypt_cipher(
     Ok(String::from_utf8(plaintext)?)
 }
 
+pub fn encrypt_cipher(
+    state: &State,
+    plaintext: &str,
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+) -> anyhow::Result<String> {
+    let keys = state
+        .key(org_id)
+        .ok_or_else(|| anyhow::anyhow!("No encryption keys available"))?;
+
+    let entry_keys = if let Some(entry_key) = entry_key {
+        let cipher = bw_core::cipherstring::CipherString::new(entry_key)?;
+        Some(bw_core::locked::Keys::new(
+            cipher.decrypt_locked_symmetric(keys)?,
+        ))
+    } else {
+        None
+    };
+
+    let enc_keys = entry_keys.as_ref().unwrap_or(keys);
+    let encrypted =
+        bw_core::cipherstring::CipherString::encrypt_symmetric(enc_keys, plaintext.as_bytes())?;
+    Ok(encrypted.to_string())
+}
+
 enum LoginContext {
     FirstLogin,
     Reunlock {

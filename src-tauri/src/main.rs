@@ -267,6 +267,8 @@ fn main() {
             commands::update_lock_mode,
             commands::get_git_signing_status,
             commands::configure_git_signing,
+            commands::get_git_sign_program_path,
+            commands::update_key_fields,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

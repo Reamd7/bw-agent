@@ -4,12 +4,29 @@ use tauri::State;
 
 use crate::{AppState, events};
 
+#[derive(serde::Serialize, Clone)]
+pub struct CustomFieldInfo {
+    pub name: String,
+    pub value: String,
+    pub field_type: u16,
+}
+
+#[derive(serde::Deserialize)]
+pub struct CustomFieldInput {
+    pub name: String,
+    pub value: String,
+    pub field_type: u16,
+}
+
 #[derive(serde::Serialize)]
 pub struct SshKeyInfo {
+    pub entry_id: String,
     pub name: String,
     pub key_type: String,
     pub fingerprint: String,
+    pub public_key: String,
     pub match_patterns: Vec<String>,
+    pub custom_fields: Vec<CustomFieldInfo>,
 }
 
 #[derive(serde::Serialize)]
@@ -285,6 +302,104 @@ pub async fn configure_git_signing() -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub async fn get_git_sign_program_path() -> Result<String, String> {
+    let path = ensure_git_sign_binary()?;
+    Ok(path.display().to_string())
+}
+
+#[tauri::command]
+pub async fn update_key_fields(
+    entry_id: String,
+    fields: Vec<CustomFieldInput>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let (access_token, entry_key, org_id) = {
+        let agent_state = state.agent_state.lock().await;
+        if !agent_state.is_unlocked() {
+            return Err("Vault is locked".to_string());
+        }
+        let access_token = agent_state.access_token.clone().ok_or("No access token")?;
+        let entry = agent_state
+            .entries
+            .iter()
+            .find(|e| e.id == entry_id)
+            .ok_or_else(|| format!("Entry not found: {entry_id}"))?;
+        (access_token, entry.key.clone(), entry.org_id.clone())
+    };
+
+    let encrypted_fields: Vec<serde_json::Value> = {
+        let agent_state = state.agent_state.lock().await;
+        fields
+            .iter()
+            .map(|f| {
+                let enc_name = bw_agent::auth::encrypt_cipher(
+                    &agent_state,
+                    &f.name,
+                    entry_key.as_deref(),
+                    org_id.as_deref(),
+                )
+                .map_err(|e| format!("Failed to encrypt field name: {e}"))?;
+                let enc_value = bw_agent::auth::encrypt_cipher(
+                    &agent_state,
+                    &f.value,
+                    entry_key.as_deref(),
+                    org_id.as_deref(),
+                )
+                .map_err(|e| format!("Failed to encrypt field value: {e}"))?;
+                Ok(serde_json::json!({
+                    "type": f.field_type,
+                    "name": enc_name,
+                    "value": enc_value,
+                    "linkedId": null,
+                }))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    };
+
+    let client = state.client.read().map_err(|e| e.to_string())?.clone();
+    let cipher_response = client
+        .get_cipher(&access_token, &entry_id)
+        .await
+        .map_err(|e| format!("Failed to get cipher: {e}"))?;
+
+    let put_body = build_cipher_update_body(&cipher_response, encrypted_fields.clone());
+    client
+        .update_cipher(&access_token, &entry_id, &put_body)
+        .await
+        .map_err(|e| format!("Failed to update cipher: {e}"))?;
+
+    {
+        let mut agent_state = state.agent_state.lock().await;
+        if let Some(entry) = agent_state.entries.iter_mut().find(|e| e.id == entry_id) {
+            entry.fields = fields
+                .iter()
+                .zip(encrypted_fields.iter())
+                .map(|(input, enc_json)| bw_core::db::Field {
+                    ty: match input.field_type {
+                        0 => Some(bw_core::api::FieldType::Text),
+                        1 => Some(bw_core::api::FieldType::Hidden),
+                        2 => Some(bw_core::api::FieldType::Boolean),
+                        3 => Some(bw_core::api::FieldType::Linked),
+                        _ => Some(bw_core::api::FieldType::Text),
+                    },
+                    name: enc_json
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    value: enc_json
+                        .get("value")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    linked_id: None,
+                })
+                .collect();
+        }
+    }
+
+    Ok(())
+}
+
 /// Clear any pending 2FA login state. Call this everywhere the vault is locked.
 fn clear_pending_two_factor(state: &AppState) {
     if let Ok(mut pending) = state.pending_two_factor.lock() {
@@ -457,7 +572,7 @@ pub async fn list_keys(state: State<'_, AppState>) -> Result<Vec<SshKeyInfo>, St
             let parsed_public_key = ssh_agent_lib::ssh_key::PublicKey::from_openssh(&public_key)
                 .map_err(|error| error.to_string())?;
 
-            let match_patterns: Vec<String> = entry
+            let custom_fields: Vec<CustomFieldInfo> = entry
                 .fields
                 .iter()
                 .filter_map(|f| {
@@ -471,34 +586,51 @@ pub async fn list_keys(state: State<'_, AppState>) -> Result<Vec<SshKeyInfo>, St
                         log::debug!("Failed to decrypt field name for entry {}: {e}", entry.id);
                     }
                     let field_name = field_name.ok()?;
-                    if field_name == "gh-match" {
-                        let field_value = f.value.as_deref()?;
-                        let decrypted = bw_agent::auth::decrypt_cipher(
-                            &agent_state,
-                            field_value,
-                            entry.key.as_deref(),
-                            entry.org_id.as_deref(),
-                        );
-                        if let Err(e) = &decrypted {
-                            log::debug!(
-                                "Failed to decrypt gh-match field value for entry {}: {e}",
-                                entry.id
+
+                    let field_value = f
+                        .value
+                        .as_deref()
+                        .and_then(|v| {
+                            let decrypted = bw_agent::auth::decrypt_cipher(
+                                &agent_state,
+                                v,
+                                entry.key.as_deref(),
+                                entry.org_id.as_deref(),
                             );
-                        }
-                        decrypted.ok()
-                    } else {
-                        None
-                    }
+                            if let Err(e) = &decrypted {
+                                log::debug!(
+                                    "Failed to decrypt field value for entry {}: {e}",
+                                    entry.id
+                                );
+                            }
+                            decrypted.ok()
+                        })
+                        .unwrap_or_default();
+
+                    Some(CustomFieldInfo {
+                        name: field_name,
+                        value: field_value,
+                        field_type: f.ty.map(|t| t as u16).unwrap_or(0),
+                    })
                 })
                 .collect();
 
+            let match_patterns: Vec<String> = custom_fields
+                .iter()
+                .filter(|f| f.name == "gh-match")
+                .map(|f| f.value.clone())
+                .collect();
+
             Ok(SshKeyInfo {
+                entry_id: entry.id.clone(),
                 name,
                 key_type: key_type_from_public_key(&public_key),
                 fingerprint: parsed_public_key
                     .fingerprint(Default::default())
                     .to_string(),
+                public_key: public_key.trim().to_string(),
                 match_patterns,
+                custom_fields,
             })
         })
         .collect()
@@ -650,6 +782,45 @@ pub async fn update_lock_mode(
     crate::system_events::set_lock_mode(&lock_mode);
 
     Ok(())
+}
+
+fn json_get(obj: &serde_json::Value, pascal: &str, camel: &str) -> serde_json::Value {
+    obj.get(pascal)
+        .or_else(|| obj.get(camel))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null)
+}
+
+fn build_cipher_update_body(
+    cipher_response: &serde_json::Value,
+    encrypted_fields: Vec<serde_json::Value>,
+) -> serde_json::Value {
+    let ssh_key_raw = json_get(cipher_response, "SshKey", "sshKey");
+    let ssh_key = if ssh_key_raw.is_null() {
+        serde_json::Value::Null
+    } else {
+        serde_json::json!({
+            "privateKey": json_get(&ssh_key_raw, "PrivateKey", "privateKey"),
+            "publicKey": json_get(&ssh_key_raw, "PublicKey", "publicKey"),
+            "keyFingerprint": json_get(&ssh_key_raw, "KeyFingerprint", "keyFingerprint")
+        })
+    };
+
+    serde_json::json!({
+        "type": json_get(cipher_response, "Type", "type"),
+        "name": json_get(cipher_response, "Name", "name"),
+        "notes": json_get(cipher_response, "Notes", "notes"),
+        "organizationId": json_get(cipher_response, "OrganizationId", "organizationId"),
+        "folderId": json_get(cipher_response, "FolderId", "folderId"),
+        "login": json_get(cipher_response, "Login", "login"),
+        "card": json_get(cipher_response, "Card", "card"),
+        "identity": json_get(cipher_response, "Identity", "identity"),
+        "secureNote": json_get(cipher_response, "SecureNote", "secureNote"),
+        "sshKey": ssh_key,
+        "fields": encrypted_fields,
+        "key": json_get(cipher_response, "Key", "key"),
+        "reprompt": json_get(cipher_response, "Reprompt", "reprompt"),
+    })
 }
 
 fn locked_password(password: String) -> bw_core::locked::Password {

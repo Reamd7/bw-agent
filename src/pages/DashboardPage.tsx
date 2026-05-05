@@ -27,6 +27,22 @@ export default function DashboardPage() {
   // Manual data fetching — no createResource/Suspense blocking
   const [keys, setKeys] = createSignal<import("../lib/tauri").SshKeyInfo[]>([]);
   const [logs, setLogs] = createSignal<import("../lib/tauri").AccessLogEntry[]>([]);
+
+  const handleKeyUpdated = (entryId: string, updatedFields: import("../lib/tauri").CustomFieldInfo[]) => {
+    setKeys((prev) =>
+      prev.map((k) =>
+        k.entry_id === entryId
+          ? {
+              ...k,
+              custom_fields: updatedFields,
+              match_patterns: updatedFields
+                .filter((f) => f.name === "gh-match")
+                .map((f) => f.value),
+            }
+          : k,
+      ),
+    );
+  };
   const [keysLoading, setKeysLoading] = createSignal(true);
   const [logsLoading, setLogsLoading] = createSignal(true);
 
@@ -293,7 +309,7 @@ export default function DashboardPage() {
                   </svg>
                 </div>
               }>
-                <KeyTable keys={keys()} />
+                <KeyTable keys={keys()} onRefresh={fetchKeys} onKeyUpdated={handleKeyUpdated} />
               </Show>
             </Match>
             
@@ -375,6 +391,7 @@ export default function DashboardPage() {
       <ApprovalDialog
         request={currentApproval()}
         onRespond={handleApprovalResponse}
+        onDismiss={() => setCurrentApproval(null)}
       />
     </div>
   );

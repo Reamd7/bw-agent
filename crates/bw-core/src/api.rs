@@ -871,6 +871,55 @@ impl Client {
         let connect_res: ConnectRefreshTokenRes = res.json_with_path().await?;
         Ok(connect_res.access_token)
     }
+
+    pub async fn get_cipher(
+        &self,
+        access_token: &str,
+        cipher_id: &str,
+    ) -> crate::error::Result<serde_json::Value> {
+        let client = self.reqwest_client()?;
+        let res = client
+            .get(self.api_url(&format!("/ciphers/{cipher_id}")))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .send()
+            .await
+            .map_err(|source| crate::error::Error::Reqwest { source })?;
+
+        match res.status() {
+            reqwest::StatusCode::OK => res
+                .json()
+                .await
+                .map_err(|source| crate::error::Error::Reqwest { source }),
+            reqwest::StatusCode::UNAUTHORIZED => Err(crate::error::Error::RequestUnauthorized),
+            _ => Err(crate::error::Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub async fn update_cipher(
+        &self,
+        access_token: &str,
+        cipher_id: &str,
+        body: &serde_json::Value,
+    ) -> crate::error::Result<()> {
+        let client = self.reqwest_client()?;
+        let res = client
+            .put(self.api_url(&format!("/ciphers/{cipher_id}")))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .json(body)
+            .send()
+            .await
+            .map_err(|source| crate::error::Error::Reqwest { source })?;
+
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => Err(crate::error::Error::RequestUnauthorized),
+            _ => Err(crate::error::Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
 }
 
 fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> crate::error::Error {

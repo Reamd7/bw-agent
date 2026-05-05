@@ -1,10 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export interface CustomFieldInfo {
+  name: string;
+  value: string;
+  field_type: number;
+}
+
+export interface CustomFieldInput {
+  name: string;
+  value: string;
+  field_type: number;
+}
+
 export interface SshKeyInfo {
+  entry_id: string;
   name: string;
   key_type: string;
   fingerprint: string;
+  public_key: string;
   match_patterns: string[];
+  custom_fields: CustomFieldInfo[];
 }
 
 export type UnlockResult = 
@@ -82,3 +97,6 @@ export const saveConfig = (config: Config) => invoke<void>("save_config", { conf
 export const updateLockMode = (lockMode: LockMode) => invoke<void>("update_lock_mode", { lockMode });
 export const getGitSigningStatus = () => invoke<GitSigningStatus>("get_git_signing_status");
 export const configureGitSigning = () => invoke<void>("configure_git_signing");
+export const getGitSignProgramPath = () => invoke<string>("get_git_sign_program_path");
+export const updateKeyFields = (entryId: string, fields: CustomFieldInput[]) =>
+  invoke<void>("update_key_fields", { entryId, fields });
