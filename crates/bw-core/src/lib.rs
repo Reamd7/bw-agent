@@ -3,6 +3,7 @@ pub mod base64;
 pub mod cipherstring;
 pub mod db;
 pub mod error;
+pub mod fingerprint;
 pub mod identity;
 pub mod json;
 pub mod locked;

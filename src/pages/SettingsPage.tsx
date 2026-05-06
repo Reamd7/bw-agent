@@ -6,6 +6,8 @@ import {
   updateLockMode,
   getGitSigningStatus,
   configureGitSigning,
+  hasTwoFactorRemember,
+  revokeTwoFactorRemember,
   type Config,
   type LockMode,
   type GitSigningStatus,
@@ -36,6 +38,8 @@ export default function SettingsPage() {
   const [configuring, setConfiguring] = createSignal(false);
 
   const [lockPreset, setLockPreset] = createSignal<string>("15m");
+  const [hasRemember, setHasRemember] = createSignal(false);
+  const [revoking, setRevoking] = createSignal(false);
 
   onMount(async () => {
     try {
@@ -69,6 +73,12 @@ export default function SettingsPage() {
         setGitSigningStatus(status);
       } catch (e) {
         console.error("Failed to get git signing status:", e);
+      }
+
+      try {
+        setHasRemember(await hasTwoFactorRemember());
+      } catch {
+        // Not logged in yet or no config — ignore
       }
     } catch (e) {
       console.error("Failed to load config:", e);
@@ -360,6 +370,37 @@ export default function SettingsPage() {
                   </div>
                 </Show>
               </div>
+
+              {/* 2FA Remember Token */}
+              <Show when={hasRemember()}>
+                <div class="mt-4 rounded-lg p-3 flex items-center justify-between" style={`background: var(--bg-secondary); border: 1px solid var(--border)`}>
+                  <div>
+                    <p class="text-sm font-medium" style={`color: var(--text-primary)`}>Remember this device</p>
+                    <p class="text-xs" style={`color: var(--text-tertiary)`}>2FA verification is skipped for 30 days. Revoke to require it every time.</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={revoking()}
+                    onClick={async () => {
+                      setRevoking(true);
+                      try {
+                        await revokeTwoFactorRemember();
+                        setHasRemember(false);
+                        setToast({ message: "2FA remember token revoked", type: "success" });
+                        setTimeout(() => setToast(null), 3000);
+                      } catch (e: any) {
+                        setToast({ message: "Failed to revoke: " + (typeof e === "string" ? e : e?.message || "unknown error"), type: "error" });
+                      } finally {
+                        setRevoking(false);
+                      }
+                    }}
+                    class="btn btn-ghost text-xs shrink-0"
+                    style={{ color: "var(--danger)" }}
+                  >
+                    {revoking() ? "Revoking..." : "Revoke"}
+                  </button>
+                </div>
+              </Show>
             </div>
 
             {/* Network */}

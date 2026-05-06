@@ -113,16 +113,21 @@ async fn try_login<U: crate::UiCallback>(
                             .map_err(|e| anyhow::anyhow!(e))?;
 
                     let device_id = uuid::Uuid::new_v4().to_string();
-                    let (access_token, refresh_token, protected_key) = client
+                    let resp = client
                         .login(
                             email,
                             &device_id,
                             &identity.master_password_hash,
                             Some(&code),
                             Some(two_factor_provider),
+                            false,
+                            None,
                         )
                         .await
                         .map_err(|e| anyhow::anyhow!(e))?;
+                    let access_token = resp.access_token;
+                    let refresh_token = resp.refresh_token;
+                    let protected_key = resp.key;
 
                     bw_core::api::LoginSession {
                         access_token,

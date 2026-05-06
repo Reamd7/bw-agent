@@ -9,11 +9,16 @@ import {
   unlockWithTwoFactor,
   getConfig,
   saveConfig,
+  createAuthRequest,
+  pollAuthRequest,
+  cancelAuthRequest,
+  submitAuthRequestTwoFactor,
+  hasRegisteredDevice,
   type UnlockResult,
 } from "../lib/tauri";
 import { setStore } from "../lib/store";
 
-type Stage = "password" | "submitting" | "two_factor" | "submitting_2fa" | "cooldown";
+type Stage = "password" | "submitting" | "two_factor" | "submitting_2fa" | "cooldown" | "device_login" | "device_login_polling" | "device_login_2fa";
 
 function navigate(path: string) {
   window.location.hash = "#" + path;
@@ -28,6 +33,12 @@ export default function LoginPage() {
   const [providers, setProviders] = createSignal<number[]>([]);
   const [serverUrl, setServerUrl] = createSignal<string | null>(null);
   const [twoFactorSource, setTwoFactorSource] = createSignal<"ui" | "ssh">("ui");
+  
+  const [rememberDevice, setRememberDevice] = createSignal(false);
+  const [twoFactorMode, setTwoFactorMode] = createSignal<"authenticator" | "recovery">("authenticator");
+  const [recoveryCode, setRecoveryCode] = createSignal("");
+  const [deviceFingerprint, setDeviceFingerprint] = createSignal("");
+  const [canDeviceLogin, setCanDeviceLogin] = createSignal(false);
 
   // Setup flow state (when config is empty)
   const [isSetup, setIsSetup] = createSignal(false);
@@ -39,6 +50,7 @@ export default function LoginPage() {
 
   let unlistenPassword: UnlistenFn | undefined;
   let unlistenTwoFactor: UnlistenFn | undefined;
+  let pollingInterval: number | undefined;
 
   onMount(async () => {
     // Load email and server URL from config
@@ -52,6 +64,12 @@ export default function LoginPage() {
         setSetupStage("server");
       }
       if (config.base_url) setServerUrl(config.base_url);
+
+      try {
+        setCanDeviceLogin(await hasRegisteredDevice());
+      } catch {
+        // Not configured yet — ignore
+      }
     } catch (e) {
       console.error("Failed to load config:", e);
     }
@@ -81,6 +99,7 @@ export default function LoginPage() {
   onCleanup(() => {
     unlistenPassword?.();
     unlistenTwoFactor?.();
+    if (pollingInterval) clearInterval(pollingInterval);
   });
 
   // ── Setup handlers ──────────────────────────────────────────────
@@ -196,7 +215,7 @@ export default function LoginPage() {
       }
 
       // UI path: explicitly use Authenticator (0) since TotpInput only shows for this provider.
-      const result: UnlockResult = await unlockWithTwoFactor(0, code);
+      const result: UnlockResult = await unlockWithTwoFactor(0, code, rememberDevice());
 
       if (result === "Success") {
         setStore("locked", false);
@@ -215,6 +234,78 @@ export default function LoginPage() {
       setError(msg);
       setStage("two_factor");
     }
+  };
+
+  const handleRecoverySubmit = async () => {
+    if (!recoveryCode().trim()) return;
+    setStage("submitting_2fa");
+    setError(undefined);
+
+    try {
+      const result: UnlockResult = await unlockWithTwoFactor(8, recoveryCode(), rememberDevice());
+
+      if (result === "Success") {
+        setStore("locked", false);
+        if (email()) setStore("email", email());
+        navigate("/dashboard");
+        return;
+      }
+
+      if (typeof result === "object" && "TwoFactorRequired" in result) {
+        setProviders(result.TwoFactorRequired.providers);
+        setStage("two_factor");
+        return;
+      }
+    } catch (e: any) {
+      const msg = typeof e === "string" ? e : e?.message || "Recovery code verification failed";
+      setError(msg);
+      setStage("two_factor");
+    }
+  };
+
+  const handleDeviceLogin = async () => {
+    setStage("device_login");
+    setError(undefined);
+    try {
+      const res = await createAuthRequest();
+      setDeviceFingerprint(res.fingerprint);
+      setStage("device_login_polling");
+      
+      pollingInterval = window.setInterval(async () => {
+        try {
+          const pollRes = await pollAuthRequest();
+          if (pollRes.approved && pollRes.two_factor_required) {
+            // Approved but needs 2FA — switch to 2FA input
+            clearInterval(pollingInterval);
+            setProviders(pollRes.two_factor_required);
+            setTwoFactorSource("ui");
+            setStage("device_login_2fa");
+          } else if (pollRes.approved) {
+            clearInterval(pollingInterval);
+            setStore("locked", false);
+            if (email()) setStore("email", email());
+            navigate("/dashboard");
+          }
+        } catch (e: any) {
+          clearInterval(pollingInterval);
+          setError(typeof e === "string" ? e : e?.message || "Device login failed");
+          setStage("password");
+        }
+      }, 3000);
+    } catch (e: any) {
+      setError(typeof e === "string" ? e : e?.message || "Failed to start device login");
+      setStage("password");
+    }
+  };
+
+  const handleCancelDeviceLogin = async () => {
+    if (pollingInterval) clearInterval(pollingInterval);
+    try {
+      await cancelAuthRequest();
+    } catch (e) {
+      console.error("Failed to cancel auth request", e);
+    }
+    setStage("password");
   };
 
   const busy = () => stage() === "submitting" || stage() === "submitting_2fa" || stage() === "cooldown";
@@ -382,6 +473,19 @@ export default function LoginPage() {
                 </>
               ) : "Unlock"}
             </button>
+            <button
+              onClick={handleDeviceLogin}
+              disabled={stage() === "submitting" || !canDeviceLogin()}
+              class="btn btn-ghost w-full mt-2"
+              title={canDeviceLogin() ? "Log in using an existing Bitwarden device" : "Log in with password first to register this device"}
+            >
+              Log in with device
+            </button>
+            <Show when={!canDeviceLogin()}>
+              <p class="text-xs mt-1 text-center" style={`color: var(--text-tertiary)`}>
+                Log in with password first to enable this option
+              </p>
+            </Show>
             <Show when={attempts() > 0 && attempts() < 3}>
               <p class="text-center text-xs" style={`color: var(--text-tertiary)`}>
                 Attempt {attempts()} of 3
@@ -399,21 +503,225 @@ export default function LoginPage() {
             <Show when={error()}>
               <p class="text-center text-sm" style={`color: var(--danger)`}>{error()}</p>
             </Show>
-            <Show when={providers().includes(0)}>
+            
+            <Show when={providers().includes(8)}>
+              <div class="flex border-b border-[var(--brand-100)] mb-4">
+                <button
+                  class={`flex-1 py-2 text-sm font-medium border-b-2 ${twoFactorMode() === "authenticator" ? "border-[var(--brand-500)] text-[var(--brand-600)]" : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}
+                  onClick={() => setTwoFactorMode("authenticator")}
+                >
+                  Authenticator
+                </button>
+                <button
+                  class={`flex-1 py-2 text-sm font-medium border-b-2 ${twoFactorMode() === "recovery" ? "border-[var(--brand-500)] text-[var(--brand-600)]" : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}
+                  onClick={() => setTwoFactorMode("recovery")}
+                >
+                  Recovery Code
+                </button>
+              </div>
+            </Show>
+
+            <Show when={twoFactorMode() === "authenticator" && providers().includes(0)}>
               <TotpInput
                 onSubmit={handleTotpSubmit}
                 disabled={stage() === "submitting_2fa"}
               />
             </Show>
+
+            <Show when={twoFactorMode() === "recovery" && providers().includes(8)}>
+              <div class="space-y-3">
+                <input
+                  type="text"
+                  value={recoveryCode()}
+                  onInput={(e) => setRecoveryCode(e.currentTarget.value)}
+                  placeholder="Recovery code"
+                  class="input"
+                  disabled={stage() === "submitting_2fa"}
+                  onKeyDown={(e) => e.key === "Enter" && handleRecoverySubmit()}
+                />
+                <button
+                  onClick={handleRecoverySubmit}
+                  disabled={stage() === "submitting_2fa" || !recoveryCode().trim()}
+                  class="btn btn-primary w-full"
+                >
+                  {stage() === "submitting_2fa" ? "Verifying..." : "Verify"}
+                </button>
+              </div>
+            </Show>
+
+            <div class="flex items-center mt-4">
+              <input
+                type="checkbox"
+                id="remember-device"
+                checked={rememberDevice()}
+                onChange={(e) => setRememberDevice(e.currentTarget.checked)}
+                class="mr-2"
+                disabled={stage() === "submitting_2fa"}
+              />
+              <label for="remember-device" class="text-sm" style={`color: var(--text-secondary)`}>
+                Remember this device for 30 days
+              </label>
+            </div>
+
             <button
               onClick={() => { setStage("password"); setError(undefined); }}
               disabled={stage() === "submitting_2fa"}
-              class="btn btn-ghost w-full text-sm"
+              class="btn btn-ghost w-full text-sm mt-2"
             >
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
               Back to password
+            </button>
+          </div>
+        </Show>
+
+        {/* Device Login stage */}
+        <Show when={!isSetup() && (stage() === "device_login" || stage() === "device_login_polling")}>
+          <div class="space-y-6 text-center">
+            <p class="text-sm font-medium" style={`color: var(--text-primary)`}>
+              Log in with device
+            </p>
+            <p class="text-sm" style={`color: var(--text-secondary)`}>
+              Approve this request on your existing Bitwarden device
+            </p>
+            
+            <Show when={stage() === "device_login_polling"}>
+              <div class="py-4">
+                <p class="text-xs mb-2 uppercase tracking-wider font-semibold" style={`color: var(--text-tertiary)`}>Fingerprint Phrase</p>
+                <div class="font-mono text-lg font-medium p-4 rounded-lg bg-[var(--brand-50)] text-[var(--brand-600)] border border-[var(--brand-100)]">
+                  {deviceFingerprint()}
+                </div>
+              </div>
+              <div class="flex items-center justify-center space-x-2 text-sm" style={`color: var(--text-secondary)`}>
+                <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span>Waiting for approval...</span>
+              </div>
+            </Show>
+
+            <Show when={stage() === "device_login"}>
+              <div class="flex items-center justify-center space-x-2 text-sm py-8" style={`color: var(--text-secondary)`}>
+                <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span>Initiating request...</span>
+              </div>
+            </Show>
+
+            <button
+              onClick={handleCancelDeviceLogin}
+              class="btn btn-ghost w-full text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </Show>
+
+        {/* Device Login 2FA stage — approved but server requires 2FA */}
+        <Show when={!isSetup() && stage() === "device_login_2fa"}>
+          <div class="space-y-6">
+            <p class="text-sm font-medium text-center" style={`color: var(--text-primary)`}>
+              Two-factor authentication required
+            </p>
+            <p class="text-sm text-center" style={`color: var(--text-secondary)`}>
+              Your login was approved, but two-factor authentication is still required.
+            </p>
+
+            <div class="flex border-b mb-4" style={`border-color: var(--border)`}>
+              <button
+                class={`flex-1 py-2 text-sm font-medium border-b-2 ${twoFactorMode() === "authenticator" ? "border-[var(--brand-500)] text-[var(--brand-600)]" : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}
+                onClick={() => setTwoFactorMode("authenticator")}
+              >
+                Authenticator
+              </button>
+              <button
+                class={`flex-1 py-2 text-sm font-medium border-b-2 ${twoFactorMode() === "recovery" ? "border-[var(--brand-500)] text-[var(--brand-600)]" : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}
+                onClick={() => setTwoFactorMode("recovery")}
+              >
+                Recovery Code
+              </button>
+            </div>
+
+            <Show when={twoFactorMode() === "authenticator" && providers().includes(0)}>
+              <TotpInput
+                onSubmit={async (code: string) => {
+                  setStage("submitting_2fa");
+                  try {
+                    const result = await submitAuthRequestTwoFactor(
+                      0, // Authenticator provider
+                      code,
+                      rememberDevice(),
+                    );
+                    if (result.success) {
+                      setStore("locked", false);
+                      if (email()) setStore("email", email());
+                      navigate("/dashboard");
+                    }
+                  } catch (e: any) {
+                    setError(typeof e === "string" ? e : e?.message || "2FA verification failed");
+                    setStage("device_login_2fa");
+                  }
+                }}
+                disabled={stage() === "submitting_2fa"}
+              />
+            </Show>
+
+            <Show when={twoFactorMode() === "recovery" && providers().includes(8)}>
+              <div class="space-y-3">
+                <input
+                  type="text"
+                  value={recoveryCode()}
+                  onInput={(e) => setRecoveryCode(e.currentTarget.value)}
+                  placeholder="Recovery code"
+                  class="input"
+                  disabled={stage() === "submitting_2fa"}
+                />
+                <button
+                  onClick={async () => {
+                    setStage("submitting_2fa");
+                    try {
+                      const result = await submitAuthRequestTwoFactor(
+                        8, // Recovery code provider
+                        recoveryCode(),
+                        false,
+                      );
+                      if (result.success) {
+                        setStore("locked", false);
+                        if (email()) setStore("email", email());
+                        navigate("/dashboard");
+                      }
+                    } catch (e: any) {
+                      setError(typeof e === "string" ? e : e?.message || "Recovery code failed");
+                      setStage("device_login_2fa");
+                    }
+                  }}
+                  class="btn btn-primary w-full"
+                  disabled={!recoveryCode() || stage() === "submitting_2fa"}
+                >
+                  Verify with recovery code
+                </button>
+              </div>
+            </Show>
+
+            <label class="flex items-center gap-2 text-sm cursor-pointer" style={`color: var(--text-secondary)`}>
+              <input
+                type="checkbox"
+                checked={rememberDevice()}
+                onChange={(e) => setRememberDevice(e.currentTarget.checked)}
+                class="checkbox checkbox-sm"
+              />
+              Remember this device for 30 days
+            </label>
+
+            <button
+              onClick={handleCancelDeviceLogin}
+              class="btn btn-ghost w-full text-sm"
+            >
+              Cancel
             </button>
           </div>
         </Show>

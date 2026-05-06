@@ -102,8 +102,8 @@ export interface GitSigningStatus {
 export const unlock = (password: string) => invoke<UnlockResult>("unlock", { password });
 export const submitPassword = (password: string | null) => invoke<void>("submit_password", { password });
 export const submitTwoFactor = (provider: number, code: string) => invoke<void>("submit_two_factor", { provider, code });
-export const unlockWithTwoFactor = (provider: number, code: string) =>
-  invoke<UnlockResult>("unlock_with_two_factor", { provider, code });
+export const unlockWithTwoFactor = (provider: number, code: string, remember: boolean) =>
+  invoke<UnlockResult>("unlock_with_two_factor", { provider, code, remember });
 export const listKeys = () => invoke<SshKeyInfo[]>("list_keys");
 export const getAccessLogs = (limit: number) => invoke<AccessLogEntry[]>("get_access_logs", { limit });
 export const approveRequest = (request_id: string, approved: boolean) => invoke<void>("approve_request", { requestId: request_id, approved });
@@ -118,6 +118,21 @@ export const configureGitSigning = () => invoke<void>("configure_git_signing");
 export const getGitSignProgramPath = () => invoke<string>("get_git_sign_program_path");
 export const updateKeyFields = (entryId: string, fields: CustomFieldInput[]) =>
   invoke<void>("update_key_fields", { entryId, fields });
+
+export interface AuthRequestResult {
+  request_id: string;
+  fingerprint: string;
+}
+export interface PollAuthRequestResult {
+  approved: boolean;
+  fingerprint_validated: boolean;
+  two_factor_required: number[] | null;
+}
+export const createAuthRequest = () => invoke<AuthRequestResult>("create_auth_request");
+export const pollAuthRequest = () => invoke<PollAuthRequestResult>("poll_auth_request");
+export const cancelAuthRequest = () => invoke<void>("cancel_auth_request");
+export const submitAuthRequestTwoFactor = (provider: number, code: string, remember: boolean) =>
+  invoke<{ success: boolean }>("submit_auth_request_two_factor", { provider, code, remember });
 
 export const approveRequestWithSession = (
   requestId: string,
@@ -136,3 +151,7 @@ export const listActiveSessions = () =>
 
 export const revokeSession = (sessionId: string) =>
   invoke<boolean>("revoke_session", { sessionId });
+
+export const hasTwoFactorRemember = () => invoke<boolean>("has_two_factor_remember");
+export const revokeTwoFactorRemember = () => invoke<void>("revoke_two_factor_remember");
+export const hasRegisteredDevice = () => invoke<boolean>("has_registered_device");

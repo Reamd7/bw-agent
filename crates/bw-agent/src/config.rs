@@ -67,6 +67,16 @@ pub struct Config {
     pub max_login_attempts: u32,
 
     pub proxy: Option<String>,
+
+    /// 30-day two-factor remember token. Stored after 2FA with "remember" checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub two_factor_remember_token: Option<String>,
+
+    /// Device UUID registered with the Bitwarden server.
+    /// Generated on first login and reused for subsequent requests (auth-request, token refresh, etc.).
+    /// vaultwarden requires the device to exist before accepting auth-request creation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
 }
 
 const fn default_approval_timeout_secs() -> u64 {
@@ -88,6 +98,8 @@ impl Default for Config {
             approval_timeout_secs: default_approval_timeout_secs(),
             max_login_attempts: default_max_login_attempts(),
             proxy: None,
+            two_factor_remember_token: None,
+            device_id: None,
         }
     }
 }
@@ -321,6 +333,8 @@ mod tests {
             approval_timeout_secs: 30,
             max_login_attempts: 3,
             proxy: Some("http://127.0.0.1:7890".to_string()),
+            two_factor_remember_token: Some("test-token".to_string()),
+            device_id: None,
         };
         let json = serde_json::to_string_pretty(&config).unwrap();
         let deserialized: Config = serde_json::from_str(&json).unwrap();
@@ -329,6 +343,10 @@ mod tests {
         assert_eq!(deserialized.lock_mode, LockMode::Timeout { seconds: 600 });
         assert_eq!(deserialized.approval_timeout_secs, 30);
         assert_eq!(deserialized.max_login_attempts, 3);
+        assert_eq!(
+            deserialized.two_factor_remember_token.as_deref(),
+            Some("test-token")
+        );
     }
 
     #[test]
@@ -422,5 +440,39 @@ mod tests {
             ..Config::default()
         };
         assert!(!config.is_empty());
+    }
+
+    #[test]
+    fn test_remember_token_default_is_none() {
+        let config = Config::default();
+        assert!(config.two_factor_remember_token.is_none());
+    }
+
+    #[test]
+    fn test_remember_token_roundtrip() {
+        let config = Config {
+            two_factor_remember_token: Some("my-secret-token".to_string()),
+            ..Config::default()
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let restored: Config = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            restored.two_factor_remember_token.as_deref(),
+            Some("my-secret-token")
+        );
+    }
+
+    #[test]
+    fn test_old_config_without_remember_token_deserializes() {
+        let json = r#"{"email":"test@test.com"}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert!(config.two_factor_remember_token.is_none());
+    }
+
+    #[test]
+    fn test_remember_token_not_serialized_when_none() {
+        let config = Config::default();
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(!json.contains("two_factor_remember_token"));
     }
 }

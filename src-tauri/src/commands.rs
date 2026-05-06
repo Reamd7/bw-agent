@@ -109,7 +109,18 @@ pub async fn unlock(password: String, state: State<'_, AppState>) -> Result<Unlo
         .ok_or_else(|| "Email not configured".to_string())?;
 
     let password = locked_password(password);
-    let device_id = bw_core::api::generate_device_id();
+    // Reuse existing device_id if we have one (vaultwarden requires known devices for auth-request).
+    // Otherwise generate a new one and save it after successful login.
+    let existing_config = bw_agent::config::Config::load();
+    let device_id = existing_config.device_id.clone().unwrap_or_else(|| {
+        let new_id = bw_core::api::generate_device_id();
+        log::info!("Generated new device_id: {new_id}");
+        new_id
+    });
+    log::info!(
+        "Using device_id: {device_id} (saved: {})",
+        existing_config.device_id.is_some()
+    );
     let client = state.client.read().map_err(|e| e.to_string())?.clone();
     let (kdf, iterations, memory, parallelism) = client
         .prelogin(&email)
@@ -126,22 +137,85 @@ pub async fn unlock(password: String, state: State<'_, AppState>) -> Result<Unlo
             &identity.master_password_hash,
             None,
             None,
+            false,
+            None,
         )
         .await;
 
     let session = match login_result {
-        Ok((access_token, refresh_token, protected_key)) => bw_core::api::LoginSession {
-            access_token,
-            refresh_token,
-            kdf,
-            iterations,
-            memory,
-            parallelism,
-            protected_key,
-            email: email.clone(),
-            identity,
-        },
+        Ok(resp) => {
+            // Save remember token if server returned one
+            if let Some(token) = &resp.two_factor_token {
+                save_remember_token(&state, token);
+            }
+            // Persist device_id so auth-request can reuse it
+            eprintln!("[bw-agent] unlock OK, saving device_id: {device_id}");
+            save_device_id(&state, &device_id);
+            bw_core::api::LoginSession {
+                access_token: resp.access_token,
+                refresh_token: resp.refresh_token,
+                kdf,
+                iterations,
+                memory,
+                parallelism,
+                protected_key: resp.key,
+                email: email.clone(),
+                identity,
+            }
+        }
         Err(bw_core::error::Error::TwoFactorRequired { providers, .. }) => {
+            // Try stored remember token before asking user
+            let remember_token = load_remember_token(&state);
+            if let Some(ref token) = remember_token {
+                let remember_login = client
+                    .login(
+                        &email,
+                        &device_id,
+                        &identity.master_password_hash,
+                        Some(token),
+                        Some(bw_core::api::TwoFactorProviderType::Remember),
+                        false,
+                        None,
+                    )
+                    .await;
+
+                match remember_login {
+                    Ok(resp) => {
+                        // Remember token worked — save new one if rotated
+                        if let Some(new_token) = &resp.two_factor_token {
+                            save_remember_token(&state, new_token);
+                        }
+                        save_device_id(&state, &device_id);
+                        let session = bw_core::api::LoginSession {
+                            access_token: resp.access_token,
+                            refresh_token: resp.refresh_token,
+                            kdf,
+                            iterations,
+                            memory,
+                            parallelism,
+                            protected_key: resp.key,
+                            email: email.clone(),
+                            identity,
+                        };
+                        let app_handle = state.app_handle.clone();
+                        let agent_state = state.agent_state.clone();
+                        spawn_sync_and_unlock(
+                            app_handle,
+                            client,
+                            agent_state,
+                            email,
+                            password,
+                            session,
+                        );
+                        return Ok(UnlockResult::Success);
+                    }
+                    Err(_) => {
+                        // Remember token rejected — clear it, fall through to normal 2FA prompt
+                        clear_remember_token(&state);
+                    }
+                }
+            }
+
             let pending_state = crate::PendingTwoFactor {
                 device_id,
                 email,
@@ -151,6 +225,7 @@ pub async fn unlock(password: String, state: State<'_, AppState>) -> Result<Unlo
                 iterations,
                 memory,
                 parallelism,
+                remember_token_rejected: remember_token.is_some(),
             };
 
             match state.pending_two_factor.lock() {
@@ -182,6 +257,7 @@ pub async fn unlock(password: String, state: State<'_, AppState>) -> Result<Unlo
 pub async fn unlock_with_two_factor(
     provider: u8,
     code: String,
+    remember: bool,
     state: State<'_, AppState>,
 ) -> Result<UnlockResult, String> {
     {
@@ -213,20 +289,32 @@ pub async fn unlock_with_two_factor(
             &pending.identity.master_password_hash,
             Some(&code),
             Some(two_factor_provider),
+            remember,
+            None,
         )
         .await;
 
     match login_result {
-        Ok((access_token, refresh_token, protected_key)) => {
+        Ok(resp) => {
+            // Save remember token if server returned one (user asked to remember)
+            if remember {
+                if let Some(token) = &resp.two_factor_token {
+                    save_remember_token(&state, token);
+                }
+            }
+
+            // Persist device_id so auth-request can reuse it
+            save_device_id(&state, &pending.device_id);
+
             let email_for_session = pending.email.clone();
             let session = bw_core::api::LoginSession {
-                access_token,
-                refresh_token,
+                access_token: resp.access_token,
+                refresh_token: resp.refresh_token,
                 kdf: pending.kdf,
                 iterations: pending.iterations,
                 memory: pending.memory,
                 parallelism: pending.parallelism,
-                protected_key,
+                protected_key: resp.key,
                 email: email_for_session,
                 identity: pending.identity,
             };
@@ -941,4 +1029,605 @@ fn config_file_path() -> PathBuf {
             .join("bw-agent")
             .join("config.json")
     }
+}
+
+// ── Remember Token helpers ────────────────────────────────────────
+
+/// Load the stored 2FA remember token from config.
+fn load_remember_token(_state: &AppState) -> Option<String> {
+    let config = bw_agent::config::Config::load();
+    config.two_factor_remember_token.clone()
+}
+
+/// Persist a 2FA remember token to config file.
+fn save_remember_token(_state: &AppState, token: &str) {
+    let mut config = bw_agent::config::Config::load();
+    config.two_factor_remember_token = Some(token.to_string());
+    let path = config_file_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match serde_json::to_string_pretty(&config) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&path, json) {
+                log::warn!("Failed to save remember token to config: {e}");
+            }
+        }
+        Err(e) => log::warn!("Failed to serialize config for remember token: {e}"),
+    }
+}
+
+/// Remove the stored 2FA remember token.
+fn clear_remember_token(_state: &AppState) {
+    let mut config = bw_agent::config::Config::load();
+    config.two_factor_remember_token = None;
+    let path = config_file_path();
+    match serde_json::to_string_pretty(&config) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&path, json) {
+                log::warn!("Failed to clear remember token from config: {e}");
+            }
+        }
+        Err(e) => log::warn!("Failed to serialize config for remember token clear: {e}"),
+    }
+}
+
+/// Check whether a 2FA remember token is stored.
+#[tauri::command]
+pub async fn has_two_factor_remember(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(load_remember_token(&state).is_some())
+}
+
+/// Revoke the stored 2FA remember token.
+/// Clears the local token. The server-side token is a JWT that will
+/// naturally expire. If the user logs in again without the remember token,
+/// the server will invalidate the old one.
+#[tauri::command]
+pub async fn revoke_two_factor_remember(state: State<'_, AppState>) -> Result<(), String> {
+    if load_remember_token(&state).is_some() {
+        clear_remember_token(&state);
+        log::info!("2FA remember token revoked");
+    }
+    Ok(())
+}
+
+/// Check whether a device_id has been registered (required for device login).
+#[tauri::command]
+pub async fn has_registered_device() -> Result<bool, String> {
+    Ok(bw_agent::config::Config::load().device_id.is_some())
+}
+
+/// Persist device_id to config file so auth-request can reuse it.
+/// vaultwarden requires the device to be registered before accepting auth-request creation.
+fn save_device_id(_state: &AppState, device_id: &str) {
+    log::info!("Saving device_id to config: {device_id}");
+    let mut config = bw_agent::config::Config::load();
+    config.device_id = Some(device_id.to_string());
+    let path = config_file_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match serde_json::to_string_pretty(&config) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&path, json) {
+                log::warn!("Failed to save device_id to config: {e}");
+            }
+        }
+        Err(e) => log::warn!("Failed to serialize config for device_id: {e}"),
+    }
+}
+
+// ── Auth Request (Login with Device) ──────────────────────────────
+
+/// Result returned when a device auth request is created.
+#[derive(serde::Serialize)]
+pub struct AuthRequestResult {
+    /// The auth request ID (used for polling).
+    pub request_id: String,
+    /// The fingerprint phrase for the user to verify on the approving device.
+    pub fingerprint: String,
+}
+
+/// Create an anonymous auth request for device login.
+/// This is step 1 of the "Login with Device" flow — it posts a new auth request
+/// and returns the request ID + fingerprint for the frontend to display.
+#[tauri::command]
+pub async fn create_auth_request(state: State<'_, AppState>) -> Result<AuthRequestResult, String> {
+    use base64::Engine as _;
+    use rand::Rng as _;
+    use rsa::pkcs8::EncodePrivateKey as _;
+    use rsa::pkcs8::EncodePublicKey as _;
+
+    let email = state
+        .agent_state
+        .lock()
+        .await
+        .email
+        .clone()
+        .ok_or_else(|| "Email not configured".to_string())?;
+
+    let client = state.client.read().map_err(|e| e.to_string())?.clone();
+    // Use the device_id that was registered during the last successful login.
+    // vaultwarden requires the device to already exist before accepting auth-request creation.
+    let device_id = bw_agent::config::Config::load()
+        .device_id
+        .ok_or_else(|| "No registered device. Please log in with password first.".to_string())?;
+    log::info!("create_auth_request using device_id: {device_id}");
+
+    // Generate an RSA keypair for this auth request
+    let mut rng = rand::rngs::OsRng;
+    let private_key = rsa::RsaPrivateKey::new(&mut rng, 2048)
+        .map_err(|e| format!("Failed to generate RSA key: {e}"))?;
+    let public_key = private_key.to_public_key();
+
+    // Encode public key as SPKI DER (SubjectPublicKeyInfo) and then base64.
+    // This matches the official Bitwarden SDK which uses to_public_key_der().
+    // The approving client parses it with RsaPublicKey::from_public_key_der()
+    // which expects SPKI format, NOT PKCS1.
+    let spki_document = public_key
+        .to_public_key_der()
+        .map_err(|e| format!("Failed to encode public key: {e}"))?;
+    let spki_der = spki_document.as_bytes();
+    let public_key_b64 = base64::engine::general_purpose::STANDARD.encode(spki_der);
+
+    // Generate access code: 25-char random alphanumeric (A-Za-z0-9).
+    // Bitwarden official clients use password generator with these defaults.
+    let access_code: String = rand::rngs::OsRng
+        .sample_iter(rand::distributions::Alphanumeric)
+        .take(25)
+        .map(char::from)
+        .collect();
+
+    let req = bw_core::api::AuthRequestCreateReq {
+        email: email.clone(),
+        public_key: public_key_b64,
+        device_identifier: device_id.clone(),
+        access_code: access_code.clone(),
+        request_type: 0, // AuthenticateAndUnlock = 0
+    };
+
+    eprintln!("[bw-agent] create_auth_request: email={email}, device_id={device_id}");
+    let res = client.create_auth_request(&req).await.map_err(|e| {
+        eprintln!("[bw-agent] create_auth_request FAILED: {e}");
+        e.to_string()
+    })?;
+
+    eprintln!("[bw-agent] create_auth_request OK: id={}", res.id);
+
+    // Compute fingerprint phrase for the user to verify
+    let fingerprint = bw_core::fingerprint::fingerprint_phrase(&email, spki_der)
+        .map_err(|e| format!("Failed to compute fingerprint: {e}"))?;
+
+    // Store pending auth request state (encode private key as PKCS8 PEM)
+    let private_key_der = private_key
+        .to_pkcs8_der()
+        .map_err(|e| format!("Failed to encode private key: {e}"))?;
+    let private_key_pem = pem::encode(&pem::Pem::new("PRIVATE KEY", private_key_der.as_bytes()));
+
+    let pending = crate::PendingAuthRequest {
+        request_id: res.id.clone(),
+        access_code,
+        private_key_pem,
+        email: email.clone(),
+    };
+
+    match state.pending_auth_request.lock() {
+        Ok(mut slot) => *slot = Some(pending),
+        Err(e) => {
+            log::error!("Failed to save pending auth request state: {e}");
+            return Err("Internal state error".to_string());
+        }
+    }
+
+    Ok(AuthRequestResult {
+        request_id: res.id,
+        fingerprint,
+    })
+}
+
+/// Poll for an auth request response (device approval).
+/// Returns:
+///   - `Ok(None)` if not yet approved (frontend should keep polling)
+///   - `Ok(Some(access_token))` if approved and vault unlocked
+///   - `Err(msg)` on failure
+#[derive(serde::Serialize)]
+pub struct PollAuthRequestResult {
+    pub approved: bool,
+    pub fingerprint_validated: bool,
+    /// If the token exchange requires 2FA, this will contain the list of
+    /// available 2FA providers.
+    pub two_factor_required: Option<Vec<u8>>,
+}
+
+#[tauri::command]
+pub async fn poll_auth_request(
+    state: State<'_, AppState>,
+) -> Result<PollAuthRequestResult, String> {
+    let pending = {
+        let guard = state.pending_auth_request.lock();
+        match guard {
+            Ok(slot) => slot.clone(),
+            Err(e) => {
+                log::error!("Failed to access pending auth request state: {e}");
+                return Err("Internal state error".to_string());
+            }
+        }
+    };
+
+    let pending = match pending {
+        Some(p) => p,
+        None => return Err("No pending auth request".to_string()),
+    };
+
+    let client = state.client.read().map_err(|e| e.to_string())?.clone();
+
+    eprintln!(
+        "[bw-agent] poll_auth_request: id={}, code={}",
+        pending.request_id, pending.access_code
+    );
+    let response = client
+        .poll_auth_response(&pending.request_id, &pending.access_code)
+        .await
+        .map_err(|e| {
+            eprintln!("[bw-agent] poll_auth_response FAILED: {e}");
+            e.to_string()
+        })?;
+
+    match response {
+        Some(data) if data.request_approved => {
+            // Approved! Now exchange the auth request for tokens.
+            // Use the same device_id that was used to create the auth request.
+            let device_id = bw_agent::config::Config::load()
+                .device_id
+                .ok_or_else(|| "No registered device".to_string())?;
+            eprintln!(
+                "[bw-agent] Exchanging auth request: id={}, device_id={}",
+                pending.request_id, device_id
+            );
+            let resp = client
+                .exchange_auth_request(
+                    &pending.request_id,
+                    &device_id,
+                    &pending.email,
+                    &pending.access_code,
+                    None,  // no 2FA token on first attempt
+                    None,  // no 2FA provider on first attempt
+                    false, // no remember on first attempt
+                )
+                .await;
+
+            match resp {
+                Ok(resp) => {
+                    // Decrypt the user key from the auth response
+                    let key_encrypted = data
+                        .key
+                        .ok_or_else(|| "Auth request approved but no key returned".to_string())?;
+
+                    let user_key_bytes = decrypt_auth_request_key(
+                        &key_encrypted,
+                        &pending.private_key_pem,
+                        &pending.access_code,
+                    )?;
+
+                    // Sync vault data using the access token
+                    let sync_data = bw_core::api::sync_vault(&client, &resp.access_token)
+                        .await
+                        .map_err(|e| e.to_string())?;
+
+                    // Unlock vault using the decrypted user key
+                    let (keys, org_keys) = bw_core::api::unlock_vault_with_user_key(
+                        &user_key_bytes,
+                        &sync_data.protected_private_key,
+                        &sync_data.org_keys,
+                    )
+                    .map_err(|e| e.to_string())?;
+
+                    // Store everything in agent state
+                    let mut agent_state = state.agent_state.lock().await;
+                    agent_state.access_token = Some(resp.access_token);
+                    agent_state.refresh_token = Some(resp.refresh_token);
+                    agent_state.email = Some(pending.email.clone());
+                    agent_state.protected_key = Some(sync_data.protected_key);
+                    agent_state.protected_private_key = Some(sync_data.protected_private_key);
+                    agent_state.protected_org_keys = sync_data.org_keys;
+                    agent_state.entries = sync_data.entries;
+                    agent_state.set_unlocked(keys, org_keys);
+
+                    // Save 2FA remember token if provided
+                    if let Some(ref token) = resp.two_factor_token {
+                        save_remember_token(&state, token);
+                    }
+
+                    // Clear pending auth request
+                    if let Ok(mut slot) = state.pending_auth_request.lock() {
+                        *slot = None;
+                    }
+
+                    // Emit events
+                    if let Err(e) = crate::events::emit_lock_state_changed(&state.app_handle, false)
+                    {
+                        log::warn!("Failed to emit lock-state-changed: {e}");
+                    }
+
+                    Ok(PollAuthRequestResult {
+                        approved: true,
+                        fingerprint_validated: true,
+                        two_factor_required: None,
+                    })
+                }
+                Err(bw_core::error::Error::TwoFactorRequired { providers, .. }) => {
+                    // Token exchange requires 2FA.
+                    // First try the stored remember token to auto-skip 2FA.
+                    let remember_token = load_remember_token(&state);
+                    if let Some(ref token) = remember_token {
+                        let remember_resp = client
+                            .exchange_auth_request(
+                                &pending.request_id,
+                                &device_id,
+                                &pending.email,
+                                &pending.access_code,
+                                Some(token),
+                                Some(bw_core::api::TwoFactorProviderType::Remember),
+                                false,
+                            )
+                            .await;
+
+                        match remember_resp {
+                            Ok(resp) => {
+                                // Remember token worked!
+                                save_remember_token(
+                                    &state,
+                                    resp.two_factor_token.as_deref().unwrap_or(token),
+                                );
+
+                                // Re-poll to get the encrypted key
+                                let response = client
+                                    .poll_auth_response(&pending.request_id, &pending.access_code)
+                                    .await
+                                    .map_err(|e| format!("Failed to re-poll auth response: {e}"))?;
+                                let data = response
+                                    .and_then(|r| if r.request_approved { Some(r) } else { None })
+                                    .ok_or_else(|| "Auth request no longer approved".to_string())?;
+
+                                let key_encrypted = data.key.ok_or_else(|| {
+                                    "Auth request approved but no key returned".to_string()
+                                })?;
+                                let user_key_bytes = decrypt_auth_request_key(
+                                    &key_encrypted,
+                                    &pending.private_key_pem,
+                                    &pending.access_code,
+                                )?;
+
+                                let sync_data =
+                                    bw_core::api::sync_vault(&client, &resp.access_token)
+                                        .await
+                                        .map_err(|e| e.to_string())?;
+                                let (keys, org_keys) = bw_core::api::unlock_vault_with_user_key(
+                                    &user_key_bytes,
+                                    &sync_data.protected_private_key,
+                                    &sync_data.org_keys,
+                                )
+                                .map_err(|e| e.to_string())?;
+
+                                let mut agent_state = state.agent_state.lock().await;
+                                agent_state.access_token = Some(resp.access_token);
+                                agent_state.refresh_token = Some(resp.refresh_token);
+                                agent_state.email = Some(pending.email.clone());
+                                agent_state.protected_key = Some(sync_data.protected_key);
+                                agent_state.protected_private_key =
+                                    Some(sync_data.protected_private_key);
+                                agent_state.protected_org_keys = sync_data.org_keys;
+                                agent_state.entries = sync_data.entries;
+                                agent_state.set_unlocked(keys, org_keys);
+
+                                if let Ok(mut slot) = state.pending_auth_request.lock() {
+                                    *slot = None;
+                                }
+                                if let Err(e) =
+                                    crate::events::emit_lock_state_changed(&state.app_handle, false)
+                                {
+                                    log::warn!("Failed to emit lock-state-changed: {e}");
+                                }
+
+                                return Ok(PollAuthRequestResult {
+                                    approved: true,
+                                    fingerprint_validated: true,
+                                    two_factor_required: None,
+                                });
+                            }
+                            Err(_) => {
+                                // Remember token rejected — clear it, fall through to 2FA prompt
+                                clear_remember_token(&state);
+                            }
+                        }
+                    }
+
+                    // No remember token or it was rejected — return to frontend for 2FA code
+                    Ok(PollAuthRequestResult {
+                        approved: true,
+                        fingerprint_validated: true,
+                        two_factor_required: Some(providers.iter().map(|p| *p as u8).collect()),
+                    })
+                }
+                Err(e) => Err(format!("Token exchange failed: {e}")),
+            }
+        }
+        Some(_) => {
+            // Response exists but not approved (or declined)
+            Ok(PollAuthRequestResult {
+                approved: false,
+                fingerprint_validated: true,
+                two_factor_required: None,
+            })
+        }
+        None => {
+            // Not yet responded
+            Ok(PollAuthRequestResult {
+                approved: false,
+                fingerprint_validated: false,
+                two_factor_required: None,
+            })
+        }
+    }
+}
+
+/// Cancel a pending auth request.
+#[tauri::command]
+pub async fn cancel_auth_request(state: State<'_, AppState>) -> Result<(), String> {
+    if let Ok(mut slot) = state.pending_auth_request.lock() {
+        *slot = None;
+    }
+    Ok(())
+}
+
+/// Submit 2FA code for a pending auth request token exchange.
+/// Called when poll_auth_request returns two_factor_required: Some(providers).
+#[derive(serde::Serialize)]
+pub struct SubmitAuthRequest2FaResult {
+    pub success: bool,
+}
+
+#[tauri::command]
+pub async fn submit_auth_request_two_factor(
+    state: State<'_, AppState>,
+    provider: u8,
+    code: String,
+    remember: bool,
+) -> Result<SubmitAuthRequest2FaResult, String> {
+    let pending = {
+        let guard = state.pending_auth_request.lock();
+        match guard {
+            Ok(slot) => slot.clone(),
+            Err(e) => {
+                log::error!("Failed to access pending auth request state: {e}");
+                return Err("Internal state error".to_string());
+            }
+        }
+    };
+
+    let pending = match pending {
+        Some(p) => p,
+        None => return Err("No pending auth request".to_string()),
+    };
+
+    let device_id = bw_agent::config::Config::load()
+        .device_id
+        .ok_or_else(|| "No registered device".to_string())?;
+
+    let client = state.client.read().map_err(|e| e.to_string())?.clone();
+
+    let two_factor_provider = bw_core::api::TwoFactorProviderType::try_from(provider as u64)
+        .map_err(|e| format!("Invalid 2FA provider: {e}"))?;
+
+    let resp = client
+        .exchange_auth_request(
+            &pending.request_id,
+            &device_id,
+            &pending.email,
+            &pending.access_code,
+            Some(&code),
+            Some(two_factor_provider),
+            remember,
+        )
+        .await
+        .map_err(|e| format!("2FA token exchange failed: {e}"))?;
+
+    // Re-poll to get the key (the approval data should still be valid)
+    let response = client
+        .poll_auth_response(&pending.request_id, &pending.access_code)
+        .await
+        .map_err(|e| format!("Failed to re-poll auth response: {e}"))?;
+
+    let data = response
+        .and_then(|r| if r.request_approved { Some(r) } else { None })
+        .ok_or_else(|| "Auth request no longer approved".to_string())?;
+
+    let key_encrypted = data
+        .key
+        .ok_or_else(|| "Auth request approved but no key returned".to_string())?;
+
+    let user_key_bytes = decrypt_auth_request_key(
+        &key_encrypted,
+        &pending.private_key_pem,
+        &pending.access_code,
+    )?;
+
+    // Sync vault data using the access token
+    let sync_data = bw_core::api::sync_vault(&client, &resp.access_token)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Unlock vault using the decrypted user key
+    let (keys, org_keys) = bw_core::api::unlock_vault_with_user_key(
+        &user_key_bytes,
+        &sync_data.protected_private_key,
+        &sync_data.org_keys,
+    )
+    .map_err(|e| e.to_string())?;
+
+    // Store everything in agent state
+    let mut agent_state = state.agent_state.lock().await;
+    agent_state.access_token = Some(resp.access_token);
+    agent_state.refresh_token = Some(resp.refresh_token);
+    agent_state.email = Some(pending.email.clone());
+    agent_state.protected_key = Some(sync_data.protected_key);
+    agent_state.protected_private_key = Some(sync_data.protected_private_key);
+    agent_state.protected_org_keys = sync_data.org_keys;
+    agent_state.entries = sync_data.entries;
+    agent_state.set_unlocked(keys, org_keys);
+
+    // Save 2FA remember token if provided
+    if let Some(ref token) = resp.two_factor_token {
+        save_remember_token(&state, token);
+    }
+
+    // Clear pending auth request
+    if let Ok(mut slot) = state.pending_auth_request.lock() {
+        *slot = None;
+    }
+
+    // Emit events
+    if let Err(e) = crate::events::emit_lock_state_changed(&state.app_handle, false) {
+        log::warn!("Failed to emit lock-state-changed: {e}");
+    }
+
+    Ok(SubmitAuthRequest2FaResult { success: true })
+}
+
+/// Decrypt the user key returned by the auth request.
+/// The key is encrypted with the public key we provided, and can be decrypted
+/// using our private key. The access code is used as additional entropy.
+fn decrypt_auth_request_key(
+    encrypted_key: &str,
+    private_key_pem: &str,
+    _access_code: &str,
+) -> Result<Vec<u8>, String> {
+    use base64::Engine as _;
+    use rsa::pkcs8::DecodePrivateKey as _;
+
+    // The encrypted key comes in EncString format: "4.<base64_ciphertext>"
+    // Type 4 = Rsa2048_OaepSha1_B64. Strip the prefix if present.
+    let b64_data = if let Some(dot_pos) = encrypted_key.find('.') {
+        &encrypted_key[dot_pos + 1..]
+    } else {
+        // Fallback: treat entire string as base64 (for non-standard servers)
+        encrypted_key
+    };
+
+    let ciphertext = base64::engine::general_purpose::STANDARD
+        .decode(b64_data)
+        .map_err(|e| format!("Failed to decode encrypted key: {e}"))?;
+
+    // Parse our private key from PEM
+    let private_key = rsa::RsaPrivateKey::from_pkcs8_pem(private_key_pem)
+        .map_err(|e| format!("Failed to parse private key: {e}"))?;
+
+    // RSA-OAEP decrypt with SHA-1 (Bitwarden's default)
+    let padding = rsa::Oaep::new::<sha1::Sha1>();
+    let decrypted = private_key
+        .decrypt(padding, &ciphertext)
+        .map_err(|e| format!("Failed to decrypt user key: {e}"))?;
+
+    // The decrypted RSA output is the raw user key bytes (64 bytes: 32 AES + 32 HMAC)
+    Ok(decrypted)
 }

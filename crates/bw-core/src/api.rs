@@ -41,6 +41,7 @@ pub enum TwoFactorProviderType {
     Remember = 5,
     OrganizationDuo = 6,
     WebAuthn = 7,
+    RecoveryCode = 8,
 }
 
 impl TwoFactorProviderType {
@@ -51,6 +52,7 @@ impl TwoFactorProviderType {
             }
             Self::Yubikey => "Insert your Yubikey and push the button.",
             Self::Email => "Enter the PIN you received via email.",
+            Self::RecoveryCode => "Enter your recovery code.",
             _ => "Enter the code.",
         }
     }
@@ -60,6 +62,7 @@ impl TwoFactorProviderType {
             Self::Authenticator => "Authenticator App",
             Self::Yubikey => "Yubikey",
             Self::Email => "Email Code",
+            Self::RecoveryCode => "Recovery Code",
             _ => "Two Factor Authentication",
         }
     }
@@ -114,6 +117,7 @@ impl std::convert::TryFrom<u64> for TwoFactorProviderType {
             5 => Ok(Self::Remember),
             6 => Ok(Self::OrganizationDuo),
             7 => Ok(Self::WebAuthn),
+            8 => Ok(Self::RecoveryCode),
             _ => Err(Error::InvalidTwoFactorProvider {
                 ty: format!("{ty}"),
             }),
@@ -134,6 +138,7 @@ impl std::str::FromStr for TwoFactorProviderType {
             "5" => Ok(Self::Remember),
             "6" => Ok(Self::OrganizationDuo),
             "7" => Ok(Self::WebAuthn),
+            "8" => Ok(Self::RecoveryCode),
             _ => Err(Error::InvalidTwoFactorProvider { ty: ty.to_string() }),
         }
     }
@@ -260,6 +265,10 @@ struct ConnectTokenReq {
     two_factor_token: Option<String>,
     #[serde(rename = "twoFactorProvider")]
     two_factor_provider: Option<u32>,
+    #[serde(rename = "twoFactorRemember", skip_serializing_if = "Option::is_none")]
+    two_factor_remember: Option<String>,
+    #[serde(rename = "authRequest", skip_serializing_if = "Option::is_none")]
+    auth_request: Option<String>,
     #[serde(flatten)]
     auth: ConnectTokenAuth,
 }
@@ -282,6 +291,17 @@ struct ConnectTokenRes {
     refresh_token: String,
     #[serde(rename = "Key", alias = "key")]
     key: String,
+    #[serde(rename = "TwoFactorToken", alias = "twoFactorToken", default)]
+    two_factor_token: Option<String>,
+}
+
+/// Result of a successful login. Replaces the previous tuple return type.
+#[derive(Debug)]
+pub struct LoginResponse {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub key: String,
+    pub two_factor_token: Option<String>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -755,7 +775,9 @@ impl Client {
         password_hash: &crate::locked::PasswordHash,
         two_factor_token: Option<&str>,
         two_factor_provider: Option<TwoFactorProviderType>,
-    ) -> crate::error::Result<(String, String, String)> {
+        two_factor_remember: bool,
+        auth_request_id: Option<&str>,
+    ) -> crate::error::Result<LoginResponse> {
         let connect_req = ConnectTokenReq {
             auth: ConnectTokenAuth::Password(ConnectTokenPassword {
                 username: email.to_string(),
@@ -770,6 +792,12 @@ impl Client {
             device_push_token: String::new(),
             two_factor_token: two_factor_token.map(std::string::ToString::to_string),
             two_factor_provider: two_factor_provider.map(|ty| ty as u32),
+            two_factor_remember: if two_factor_remember {
+                Some("1".to_string())
+            } else {
+                None
+            },
+            auth_request: auth_request_id.map(String::from),
         };
 
         let client = self.reqwest_client()?;
@@ -783,11 +811,12 @@ impl Client {
 
         if res.status() == reqwest::StatusCode::OK {
             let connect_res: ConnectTokenRes = res.json_with_path().await?;
-            Ok((
-                connect_res.access_token,
-                connect_res.refresh_token,
-                connect_res.key,
-            ))
+            Ok(LoginResponse {
+                access_token: connect_res.access_token,
+                refresh_token: connect_res.refresh_token,
+                key: connect_res.key,
+                two_factor_token: connect_res.two_factor_token,
+            })
         } else {
             let code = res.status().as_u16();
             match res.text().await {
@@ -920,6 +949,224 @@ impl Client {
             }),
         }
     }
+
+    // ── Auth Request (Login with Device) ────────────────────────────
+
+    /// POST /auth-requests — Create a new device login request (anonymous).
+    pub async fn create_auth_request(
+        &self,
+        req: &AuthRequestCreateReq,
+    ) -> crate::error::Result<AuthRequestCreateRes> {
+        let client = self.reqwest_client()?;
+        let request_body = serde_json::to_string(req).unwrap_or_default();
+        log::debug!("POST /auth-requests body: {request_body}");
+        let res = client
+            .post(self.api_url("/auth-requests"))
+            .json(req)
+            .send()
+            .await
+            .map_err(|source| crate::error::Error::Reqwest { source })?;
+        let status = res.status();
+        let body = res
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
+        log::info!("POST /auth-requests response {status}: {body}");
+        if status == reqwest::StatusCode::OK || status == reqwest::StatusCode::CREATED {
+            let jd = &mut serde_json::Deserializer::from_str(&body);
+            serde_path_to_error::deserialize(jd).map_err(|source| {
+                log::error!("Failed to parse auth-request response: {source}");
+                log::error!("  raw body was: {body}");
+                crate::error::Error::Json { source }
+            })
+        } else {
+            log::error!("create_auth_request failed {status}: {body}");
+            log::error!("  sent JSON: {request_body}");
+            Err(crate::error::Error::RequestFailed {
+                status: status.as_u16(),
+            })
+        }
+    }
+
+    /// GET /auth-requests/{id}/response?code={accessCode} — Poll for device approval.
+    /// Returns `Ok(None)` when not yet approved.
+    pub async fn poll_auth_response(
+        &self,
+        request_id: &str,
+        access_code: &str,
+    ) -> crate::error::Result<Option<AuthRequestResponseRes>> {
+        let client = self.reqwest_client()?;
+        let url = self.api_url(&format!(
+            "/auth-requests/{request_id}/response?code={access_code}"
+        ));
+        let res = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|source| crate::error::Error::Reqwest { source })?;
+        let status = res.status();
+        let body = res
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
+        log::info!("GET /auth-requests/{request_id}/response [{status}]: {body}");
+        if status == reqwest::StatusCode::OK {
+            let jd = &mut serde_json::Deserializer::from_str(&body);
+            let data: AuthRequestResponseRes =
+                serde_path_to_error::deserialize(jd).map_err(|source| {
+                    log::error!("Failed to parse auth-response: {source}");
+                    log::error!("  raw body was: {body}");
+                    crate::error::Error::Json { source }
+                })?;
+            if data.request_approved {
+                Ok(Some(data))
+            } else {
+                Ok(None)
+            }
+        } else if status == reqwest::StatusCode::NOT_FOUND {
+            Ok(None)
+        } else {
+            Err(crate::error::Error::RequestFailed {
+                status: status.as_u16(),
+            })
+        }
+    }
+
+    /// Exchange an approved auth request for an access token (device login).
+    /// Uses `grant_type=client_credentials` with the auth_request ID.
+    pub async fn exchange_auth_request(
+        &self,
+        auth_request_id: &str,
+        device_identifier: &str,
+        email: &str,
+        access_code: &str,
+        two_factor_token: Option<&str>,
+        two_factor_provider: Option<TwoFactorProviderType>,
+        two_factor_remember: bool,
+    ) -> crate::error::Result<LoginResponse> {
+        // Auth request token exchange uses grant_type=password with:
+        //   username = email
+        //   password = access_code
+        //   authRequest = auth_request_id
+        // This matches the official SDK's AuthRequestTokenRequest.
+        // vaultwarden still requires 2FA even for auth requests, so we
+        // pass two_factor fields through as well.
+        let connect_req = ConnectTokenReq {
+            auth: ConnectTokenAuth::Password(ConnectTokenPassword {
+                username: email.to_string(),
+                password: access_code.to_string(),
+            }),
+            grant_type: "password".to_string(),
+            scope: "api offline_access".to_string(),
+            client_id: BITWARDEN_CLIENT.to_string(),
+            device_type: u32::from(DEVICE_TYPE),
+            device_identifier: device_identifier.to_string(),
+            device_name: "bw-agent".to_string(),
+            device_push_token: String::new(),
+            two_factor_token: two_factor_token.map(String::from),
+            two_factor_provider: two_factor_provider.map(|ty| ty as u32),
+            two_factor_remember: if two_factor_remember {
+                Some("1".to_string())
+            } else {
+                None
+            },
+            auth_request: Some(auth_request_id.to_string()),
+        };
+
+        let client = self.reqwest_client()?;
+        let res = client
+            .post(self.identity_url("/connect/token"))
+            .form(&connect_req)
+            .send()
+            .await
+            .map_err(|source| crate::error::Error::Reqwest { source })?;
+
+        if res.status() == reqwest::StatusCode::OK {
+            let connect_res: ConnectTokenRes = res.json_with_path().await?;
+            Ok(LoginResponse {
+                access_token: connect_res.access_token,
+                refresh_token: connect_res.refresh_token,
+                key: connect_res.key,
+                two_factor_token: connect_res.two_factor_token,
+            })
+        } else {
+            let code = res.status().as_u16();
+            match res.text().await {
+                Ok(body) => match body.clone().json_with_path() {
+                    Ok(json) => Err(classify_login_error(&json, code)),
+                    Err(e) => {
+                        log::warn!("{e}: {body}");
+                        Err(crate::error::Error::RequestFailed { status: code })
+                    }
+                },
+                Err(e) => {
+                    log::warn!("failed to read response body: {e}");
+                    Err(crate::error::Error::RequestFailed { status: code })
+                }
+            }
+        }
+    }
+}
+
+// ── Auth Request Models ─────────────────────────────────────────────
+
+#[derive(serde::Serialize, Debug)]
+pub struct AuthRequestCreateReq {
+    pub email: String,
+    #[serde(rename = "publicKey")]
+    pub public_key: String,
+    #[serde(rename = "deviceIdentifier")]
+    pub device_identifier: String,
+    #[serde(rename = "accessCode")]
+    pub access_code: String,
+    #[serde(rename = "type")]
+    pub request_type: u32,
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct AuthRequestCreateRes {
+    #[serde(rename = "Id", alias = "id")]
+    pub id: String,
+    #[serde(rename = "PublicKey", alias = "publicKey")]
+    pub public_key: String,
+    #[serde(rename = "CreationDate", alias = "creationDate")]
+    pub creation_date: String,
+    /// vaultwarden returns `null` when not yet approved; treat null as false.
+    #[serde(
+        rename = "RequestApproved",
+        alias = "requestApproved",
+        default,
+        deserialize_with = "deserialize_bool_or_null"
+    )]
+    pub request_approved: bool,
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct AuthRequestResponseRes {
+    #[serde(rename = "Id", alias = "id")]
+    pub id: String,
+    #[serde(rename = "Key", alias = "key")]
+    pub key: Option<String>,
+    /// vaultwarden returns `null` when not yet approved; treat null as false.
+    #[serde(
+        rename = "RequestApproved",
+        alias = "requestApproved",
+        default,
+        deserialize_with = "deserialize_bool_or_null"
+    )]
+    pub request_approved: bool,
+    #[serde(rename = "MasterPasswordHash", alias = "masterPasswordHash")]
+    pub master_password_hash: Option<String>,
+    #[serde(rename = "ResponseDate", alias = "responseDate")]
+    pub response_date: Option<String>,
+}
+
+fn deserialize_bool_or_null<'de, D>(deserializer: D) -> std::result::Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    Option::<bool>::deserialize(deserializer).map(|v: Option<bool>| v.unwrap_or(false))
 }
 
 fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> crate::error::Error {
@@ -971,24 +1218,26 @@ pub async fn full_login(
     let identity =
         crate::identity::Identity::new(email, password, kdf, iterations, memory, parallelism)?;
 
-    let (access_token, refresh_token, protected_key) = client
+    let resp = client
         .login(
             email,
             &device_id,
             &identity.master_password_hash,
             None,
             None,
+            false,
+            None,
         )
         .await?;
 
     Ok(LoginSession {
-        access_token,
-        refresh_token,
+        access_token: resp.access_token,
+        refresh_token: resp.refresh_token,
         kdf,
         iterations,
         memory,
         parallelism,
-        protected_key,
+        protected_key: resp.key,
         email: email.to_string(),
         identity,
     })
@@ -1010,6 +1259,36 @@ pub async fn sync_vault(client: &Client, access_token: &str) -> crate::error::Re
         org_keys,
         entries,
     })
+}
+
+/// Unlock vault using a pre-derived user key (from device login).
+/// Bypasses password-based key derivation — the `user_key_bytes` are used directly
+/// as the symmetric encryption key (32-byte AES key + 32-byte HMAC key).
+pub fn unlock_vault_with_user_key(
+    user_key_bytes: &[u8],
+    protected_private_key: &str,
+    protected_org_keys: &std::collections::HashMap<String, String>,
+) -> crate::error::Result<(
+    crate::locked::Keys,
+    std::collections::HashMap<String, crate::locked::Keys>,
+)> {
+    let mut key_vec = crate::locked::Vec::new();
+    key_vec.extend(user_key_bytes.iter().copied());
+    let user_keys = crate::locked::Keys::new(key_vec);
+
+    let protected_private_key = crate::cipherstring::CipherString::new(protected_private_key)?;
+    let private_key =
+        crate::locked::PrivateKey::new(protected_private_key.decrypt_locked_symmetric(&user_keys)?);
+
+    let mut org_keys_map = std::collections::HashMap::new();
+    for (org_id, protected_org_key) in protected_org_keys {
+        let protected_org_key = crate::cipherstring::CipherString::new(protected_org_key)?;
+        let org_key =
+            crate::locked::Keys::new(protected_org_key.decrypt_locked_asymmetric(&private_key)?);
+        org_keys_map.insert(org_id.clone(), org_key);
+    }
+
+    Ok((user_keys, org_keys_map))
 }
 
 pub fn unlock_vault(
@@ -1099,5 +1378,107 @@ mod tests {
         let id = generate_device_id();
         assert_eq!(id.len(), 36);
         assert_eq!(id.chars().filter(|c| *c == '-').count(), 4);
+    }
+
+    #[test]
+    fn test_recovery_code_try_from() {
+        assert_eq!(
+            TwoFactorProviderType::try_from(8u64).unwrap(),
+            TwoFactorProviderType::RecoveryCode
+        );
+    }
+
+    #[test]
+    fn test_recovery_code_from_str() {
+        assert_eq!(
+            "8".parse::<TwoFactorProviderType>().unwrap(),
+            TwoFactorProviderType::RecoveryCode
+        );
+    }
+
+    #[test]
+    fn test_recovery_code_message_and_header() {
+        let rc = TwoFactorProviderType::RecoveryCode;
+        assert!(rc.message().contains("recovery"));
+        assert!(rc.header().contains("Recovery"));
+    }
+
+    #[test]
+    fn test_connect_token_res_with_two_factor_token() {
+        let json = r#"{
+            "access_token": "at",
+            "refresh_token": "rt",
+            "Key": "k",
+            "TwoFactorToken": "remember-me-token"
+        }"#;
+        let res: ConnectTokenRes = serde_json::from_str(json).unwrap();
+        assert_eq!(res.two_factor_token.as_deref(), Some("remember-me-token"));
+    }
+
+    #[test]
+    fn test_connect_token_res_without_two_factor_token() {
+        let json = r#"{
+            "access_token": "at",
+            "refresh_token": "rt",
+            "Key": "k"
+        }"#;
+        let res: ConnectTokenRes = serde_json::from_str(json).unwrap();
+        assert!(res.two_factor_token.is_none());
+    }
+
+    #[test]
+    fn test_auth_request_create_req_serialization() {
+        let req = AuthRequestCreateReq {
+            email: "user@example.com".to_string(),
+            public_key: "base64key".to_string(),
+            device_identifier: "device-uuid".to_string(),
+            access_code: "abc123".to_string(),
+            request_type: 0,
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["email"], "user@example.com");
+        assert_eq!(json["publicKey"], "base64key");
+        assert_eq!(json["deviceIdentifier"], "device-uuid");
+        assert_eq!(json["accessCode"], "abc123");
+        assert_eq!(json["type"], 0);
+    }
+
+    #[test]
+    fn test_auth_request_response_approved() {
+        let json = r#"{
+            "Id": "req-id",
+            "Key": "encrypted-key",
+            "RequestApproved": true,
+            "MasterPasswordHash": "hash123",
+            "ResponseDate": "2024-01-01T00:00:05Z"
+        }"#;
+        let res: AuthRequestResponseRes = serde_json::from_str(json).unwrap();
+        assert!(res.request_approved);
+        assert_eq!(res.key.as_deref(), Some("encrypted-key"));
+        assert_eq!(res.master_password_hash.as_deref(), Some("hash123"));
+    }
+
+    #[test]
+    fn test_auth_request_response_pending() {
+        let json = r#"{
+            "Id": "req-id",
+            "RequestApproved": false
+        }"#;
+        let res: AuthRequestResponseRes = serde_json::from_str(json).unwrap();
+        assert!(!res.request_approved);
+        assert!(res.key.is_none());
+    }
+
+    #[test]
+    fn test_auth_request_response_null_approved() {
+        // vaultwarden returns null for requestApproved when not yet approved
+        let json = r#"{
+            "id": "req-id",
+            "requestApproved": null,
+            "key": null
+        }"#;
+        let res: AuthRequestResponseRes = serde_json::from_str(json).unwrap();
+        assert!(!res.request_approved);
+        assert!(res.key.is_none());
     }
 }

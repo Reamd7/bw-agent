@@ -478,7 +478,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "sha1",
+ "sha1 0.11.0",
  "sha2 0.11.0",
  "signature",
  "ssh-agent-lib",
@@ -492,6 +492,7 @@ name = "bw-agent-desktop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "block2",
  "bw-agent",
  "bw-core",
@@ -500,13 +501,18 @@ dependencies = [
  "log",
  "objc2-app-kit",
  "objc2-foundation",
+ "pem",
+ "rand 0.8.5",
+ "rsa",
  "serde",
  "serde_json",
+ "sha1 0.10.6",
  "ssh-agent-lib",
  "tauri",
  "tauri-build",
  "tauri-plugin-notification",
  "tokio",
+ "uuid",
  "windows-sys 0.59.0",
 ]
 
@@ -523,6 +529,9 @@ dependencies = [
  "hkdf",
  "hmac 0.13.0",
  "log",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
  "pbkdf2",
  "percent-encoding",
  "pkcs8",
@@ -534,7 +543,7 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "serde_repr",
- "sha1",
+ "sha1 0.11.0",
  "sha2 0.11.0",
  "thiserror 2.0.18",
  "tokio",
@@ -2984,6 +2993,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-bigint"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
+dependencies = [
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-bigint-dig"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3391,6 +3410,16 @@ checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
 dependencies = [
  "digest 0.10.7",
  "hmac 0.12.1",
+]
+
+[[package]]
+name = "pem"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
+dependencies = [
+ "base64 0.22.1",
+ "serde_core",
 ]
 
 [[package]]
@@ -4712,6 +4741,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "170fb83ab34de17dc69aa7c67482b22218ddb85da56546f9bd6b929e32a05930"
 dependencies = [
  "stable_deref_trait",
+]
+
+[[package]]
+name = "sha1"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest 0.10.7",
 ]
 
 [[package]]

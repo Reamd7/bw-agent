@@ -22,6 +22,18 @@ pub struct PendingTwoFactor {
     pub iterations: u32,
     pub memory: Option<u32>,
     pub parallelism: Option<u32>,
+    /// True if a stored remember token was attempted but rejected by the server.
+    pub remember_token_rejected: bool,
+}
+
+/// Holds intermediate state for "Login with Device" flow.
+/// Created by `create_auth_request`, consumed by `poll_auth_request`.
+#[derive(Clone)]
+pub struct PendingAuthRequest {
+    pub request_id: String,
+    pub access_code: String,
+    pub private_key_pem: String,
+    pub email: String,
 }
 /// One-shot channel slot for relaying a master-password prompt response to the
 /// core agent. Wrapped in `Arc<Mutex<Option<_>>>` so the UI callback can atomically
@@ -44,6 +56,7 @@ pub struct AppState {
     pub password_tx: PasswordPromptSlot,
     pub two_factor_tx: TwoFactorPromptSlot,
     pub pending_two_factor: Arc<Mutex<Option<PendingTwoFactor>>>,
+    pub pending_auth_request: Arc<Mutex<Option<PendingAuthRequest>>>,
 }
 
 #[derive(Clone)]
@@ -173,6 +186,7 @@ fn main() {
             let password_tx = Arc::new(Mutex::new(None));
             let two_factor_tx = Arc::new(Mutex::new(None));
             let pending_two_factor = Arc::new(Mutex::new(None));
+            let pending_auth_request = Arc::new(Mutex::new(None));
             let pending_two_factor_for_bg = Arc::clone(&pending_two_factor);
 
             let mut initial_state = bw_agent::state::State::new(config.lock_mode.cache_ttl());
@@ -198,6 +212,7 @@ fn main() {
                 password_tx,
                 two_factor_tx,
                 pending_two_factor,
+                pending_auth_request,
             });
 
             let agent_config = config.clone();
@@ -277,6 +292,13 @@ fn main() {
             commands::approve_request_with_session,
             commands::list_active_sessions,
             commands::revoke_session,
+            commands::create_auth_request,
+            commands::poll_auth_request,
+            commands::cancel_auth_request,
+            commands::submit_auth_request_two_factor,
+            commands::has_two_factor_remember,
+            commands::revoke_two_factor_remember,
+            commands::has_registered_device,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
