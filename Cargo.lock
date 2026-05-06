@@ -465,7 +465,7 @@ checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
 
 [[package]]
 name = "bw-agent"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "bw-core",
@@ -489,7 +489,7 @@ dependencies = [
 
 [[package]]
 name = "bw-agent-desktop"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -518,7 +518,7 @@ dependencies = [
 
 [[package]]
 name = "bw-core"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "aes",
  "argon2",
