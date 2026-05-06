@@ -139,7 +139,36 @@ impl bw_agent::UiCallback for TauriUiCallback {
 }
 
 fn main() {
-    env_logger::init();
+    // In debug builds, always write Rust logs to a temp file so e2e tests
+    // can capture the desktop console output. The file path is written to
+    // a well-known marker file that tests can read.
+    #[cfg(debug_assertions)]
+    {
+        let log_dir = std::env::var("TEMP")
+            .or_else(|_| std::env::var("TMP"))
+            .unwrap_or_else(|_| "/tmp".to_string());
+        let log_path = std::path::Path::new(&log_dir).join("bw-agent-e2e.log");
+        let marker_path = std::path::Path::new(&log_dir).join("bw-agent-e2e.log.path");
+
+        if let Ok(file) = std::fs::File::create(&log_path) {
+            env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+                .target(env_logger::Target::Pipe(Box::new(file)))
+                .format_timestamp_secs()
+                .init();
+
+            // Write marker so tests know where to find the log
+            if let Ok(mut m) = std::fs::File::create(&marker_path) {
+                use std::io::Write;
+                let _ = m.write_all(log_path.to_string_lossy().as_bytes());
+            }
+        } else {
+            env_logger::init();
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        env_logger::init();
+    }
 
     // Install a panic hook that writes crash details to a log file
     // before the process terminates. This gives users something to
