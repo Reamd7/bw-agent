@@ -35,3 +35,6 @@ src-tauri/gen
 
 *.log
 .playwright-mcp
+
+# E2E test artifacts (screenshots + recordings)
+e2e-tests/results/

@@ -12,6 +12,7 @@
     "tauri:dev": "concurrently -n sidecar,tauri -c blue,green \"pnpm watch:sidecar\" \"tauri dev\"",
     "test": "cargo test --workspace",
     "test:unit": "echo \"[placeholder] frontend unit tests not yet implemented (owned by task2)\" && exit 0",
+    "test:e2e": "pnpm --filter bw-agent-e2e test",
     "check": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings",
     "check:full": "cargo clean && cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings",
     "prepare": "husky"
